@@ -1,10 +1,27 @@
-import { concatHex, encodeAbiParameters, encodeFunctionData, fromHex, toHex, type Address } from "viem";
+import {
+  concatHex,
+  encodeAbiParameters,
+  encodeFunctionData,
+  fromHex,
+  keccak256,
+  parseEventLogs,
+  toHex,
+  type Address,
+  type TransactionReceipt,
+} from "viem";
 import { Client, dropsToXrp, Wallet } from "xrpl";
 import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
-import { publicClient } from "./client";
-import { sendXrplPayment } from "./xrpl";
+import { account, publicClient, walletClient } from "./client";
+import { sendXrplPayment, waitForXrplFinality, XRPL_FDC_CONFIRMATIONS } from "./xrpl";
 import { getAssetManagerFXRPAddress, getMasterAccountControllerAddress } from "./flare-contract-registry";
 import { abi as iMemoInstructionsFacetAbi } from "../abis/IMemoInstructionsFacet";
+import { abi as iDirectMintingExtAbi } from "../abis/IDirectMintingExt";
+import {
+  prepareXrpPaymentRequest,
+  retrieveXrpPaymentProofWithRetry,
+  submitAttestationRequest,
+  type IXrpPaymentProof,
+} from "./fdc";
 import type { UserOperationExecutedEventType } from "./event-types";
 
 export async function getInstructionFee(encodedInstruction: string): Promise<number> {
@@ -172,16 +189,12 @@ export async function getMintingTagManagerAddress(): Promise<Address> {
   });
 }
 
-export function encodeExecuteUserOpMemo({
+function encodePackedUserOpData({
   calls,
-  walletId,
-  executorFeeUBA,
   sender,
   nonce,
 }: {
   calls: Call[];
-  walletId: number;
-  executorFeeUBA: bigint;
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
@@ -191,7 +204,7 @@ export function encodeExecuteUserOpMemo({
     args: [calls],
   });
 
-  const encodedUserOp = encodeAbiParameters(
+  return encodeAbiParameters(
     [PACKED_USER_OPERATION_TUPLE],
     [
       {
@@ -207,11 +220,50 @@ export function encodeExecuteUserOpMemo({
       },
     ]
   );
+}
 
-  // 10-byte header: 0xFF | walletId (1B) | executorFee (8B, big-endian)
-  const header = concatHex(["0xff", toHex(walletId, { size: 1 }), toHex(executorFeeUBA, { size: 8 })]);
+// 10-byte instruction header: opcode (1B) | walletId (1B) | executorFee (8B, big-endian).
+function buildInstructionHeader(opcode: "0xff" | "0xfe", walletId: number, executorFeeUBA: bigint): `0x${string}` {
+  return concatHex([opcode, toHex(walletId, { size: 1 }), toHex(executorFeeUBA, { size: 8 })]);
+}
 
-  return concatHex([header, encodedUserOp]);
+export function encodeExecuteUserOpMemo({
+  calls,
+  walletId,
+  executorFeeUBA,
+  sender,
+  nonce,
+}: {
+  calls: Call[];
+  walletId: number;
+  executorFeeUBA: bigint;
+  sender: Address;
+  nonce: bigint;
+}): `0x${string}` {
+  const encodedUserOp = encodePackedUserOpData({ calls, sender, nonce });
+  return concatHex([buildInstructionHeader("0xff", walletId, executorFeeUBA), encodedUserOp]);
+}
+
+// The 32-byte hash is appended after the 10-byte header (42 bytes total). The full
+// PackedUserOperation lives in `data`; the executor passes it as the `_data` argument
+// to AssetManagerFXRP.handleMintedFAssets, and the on-chain facet verifies that
+// keccak256(_data) matches the hash before executing.
+export function encodeHashInstructionMemo({
+  calls,
+  walletId,
+  executorFeeUBA,
+  sender,
+  nonce,
+}: {
+  calls: Call[];
+  walletId: number;
+  executorFeeUBA: bigint;
+  sender: Address;
+  nonce: bigint;
+}): { memoData: `0x${string}`; data: `0x${string}` } {
+  const data = encodePackedUserOpData({ calls, sender, nonce });
+  const memoData = concatHex([buildInstructionHeader("0xfe", walletId, executorFeeUBA), keccak256(data)]);
+  return { memoData, data };
 }
 
 export async function sendMemoFieldInstruction({
@@ -257,6 +309,196 @@ export async function sendMemoFieldInstruction({
   const event = await waitForUserOperationExecuted({ personalAccount, nonce });
   console.log(`[${label}] UserOperationExecuted event:`, event, "\n");
   return event;
+}
+
+// Result of the user-side step of the 0xFE flow: enough information for the
+// caller to drive the executor and confirmation steps explicitly.
+export type HashInstructionUserSide = {
+  xrplTransactionHash: string;
+  /** ABI-encoded PackedUserOperation — the bytes the executor delivers via _data. */
+  data: `0x${string}`;
+  /** Sum of call.value across the UserOp; the executor must forward this as msg.value. */
+  totalCallValue: bigint;
+  /** Nonce used in the UserOp; pair (personalAccount, nonce) identifies the UserOperationExecuted log. */
+  nonce: bigint;
+};
+
+/**
+ * Step 1 of the 0xFE flow — the **user side**.
+ *
+ * Encodes the PackedUserOperation, computes the 42-byte 0xFE memo
+ * `[0xFE][walletId][fee][keccak256(userOp)]`, and sends an XRPL Payment to the
+ * FXRP core-vault address carrying that memo. The full UserOp bytes never
+ * touch the XRPL; only the 32-byte hash commitment does.
+ *
+ * Returns the artifacts the executor step needs (`xrplTransactionHash`,
+ * `data`, `totalCallValue`) and the identifiers the confirmation step uses
+ * (`personalAccount`, `nonce`).
+ */
+export async function sendHashInstruction({
+  label,
+  calls,
+  amountXrp,
+  personalAccount,
+  xrplClient,
+  xrplWallet,
+}: {
+  label: string;
+  calls: Call[];
+  amountXrp: number;
+  personalAccount: Address;
+  xrplClient: Client;
+  xrplWallet: Wallet;
+}): Promise<HashInstructionUserSide> {
+  console.log(`[${label}] calls:`, calls, "\n");
+
+  const [nonce, coreVaultXrplAddress] = await Promise.all([
+    getNonce(personalAccount),
+    getDirectMintingPaymentAddress(),
+  ]);
+  console.log(`[${label}] current nonce:`, nonce, "\n");
+
+  const { memoData, data } = encodeHashInstructionMemo({
+    calls,
+    walletId: 0,
+    executorFeeUBA: 0n,
+    sender: personalAccount,
+    nonce,
+  });
+  const totalCallValue = calls.reduce((acc, call) => acc + call.value, 0n);
+  console.log(`[${label}] userOpHash:`, keccak256(data), "\n");
+  console.log(`[${label}] _data (${(data.length - 2) / 2} bytes):`, data, "\n");
+  console.log(`[${label}] total call.value (native value to attach on executor tx):`, totalCallValue, "\n");
+
+  const transaction = await sendXrplPayment({
+    destination: coreVaultXrplAddress,
+    amount: amountXrp,
+    memos: [{ Memo: { MemoData: memoData.slice(2) } }],
+    wallet: xrplWallet,
+    client: xrplClient,
+  });
+  const xrplTransactionHash = transaction.result.hash;
+  console.log(`[${label}] XRPL transaction hash:`, xrplTransactionHash, "\n");
+
+  return { xrplTransactionHash, data, totalCallValue, nonce };
+}
+
+/**
+ * Step 2 of the 0xFE flow — the **executor side**.
+ *
+ * Acquires an FDC `IXRPPayment.Proof` for the XRPL transaction and submits
+ * `AssetManagerFXRP.executeDirectMintingWithData(proof, data, { value })`.
+ * `msg.value` flows AssetManager → `MasterAccountController.handleMintedFAssets`
+ * → `PersonalAccount.call`, so it must cover the sum of call.value on the UserOp.
+ *
+ * In production this step is run by a third-party executor service that
+ * receives `data` out-of-band (the XRPL only carried the hash). In these
+ * example scripts the same externally owned account runs both steps for end-to-end demo purposes.
+ *
+ * Returns the AssetManager call's receipt; the receipt's logs already contain
+ * the `UserOperationExecuted` event because the MasterAccountController executes the UserOp
+ * synchronously inside `handleMintedFAssets`.
+ */
+export async function executeDirectMintingWithData({
+  xrplTransactionHash,
+  data,
+  value,
+  xrplClient,
+  label,
+}: {
+  xrplTransactionHash: string;
+  data: `0x${string}`;
+  value: bigint;
+  xrplClient: Client;
+  label?: string;
+}): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }> {
+  const tag = label ? `[${label}] ` : "";
+  // XRPL hashes are 64 hex chars without 0x; the FDC verifier wants a 32-byte hex string.
+  const transactionId = (xrplTransactionHash.startsWith("0x")
+    ? xrplTransactionHash
+    : `0x${xrplTransactionHash}`).toLowerCase() as `0x${string}`;
+
+  // The FDC XRPPayment attestation type rejects requests whose XRPL transaction
+  // isn't yet buried under `XRPL_FDC_CONFIRMATIONS` validated ledgers (3 on
+  // XRPL ≈ 12 seconds). `xrpl.submitAndWait` only blocks for the first
+  // confirmation, so we have to wait for the rest before calling the verifier.
+  console.log(`${tag}Waiting for XRPL transaction to reach ${XRPL_FDC_CONFIRMATIONS} confirmations`);
+  const finality = await waitForXrplFinality({
+    client: xrplClient,
+    transactionHash: xrplTransactionHash,
+  });
+  console.log(
+    `${tag}XRPL finality reached: ${finality.confirmations} confirmations ` +
+      `(txLedger=${finality.txLedgerIndex}, validated=${finality.validatedLedgerIndex})`
+  );
+
+  // Bind the proof to the operator's externally owned account so AssetManagerFXRP's
+  // verifyProofOwnership check (proofOwner == address(0) || == msg.sender)
+  // accepts it when we submit executeDirectMintingWithData below.
+  console.log(`${tag}Preparing FDC XRPPayment attestation for txid ${transactionId} (proofOwner=${account.address})`);
+  const verifierBaseUrl = process.env.VERIFIER_URL_TESTNET;
+  const apiKey = process.env.VERIFIER_API_KEY_TESTNET;
+  if (!verifierBaseUrl || !apiKey) {
+    throw new Error("FDC verifier config missing: set VERIFIER_URL_TESTNET and VERIFIER_API_KEY_TESTNET");
+  }
+  const { abiEncodedRequest } = await prepareXrpPaymentRequest({
+    transactionId,
+    proofOwner: account.address,
+    verifierBaseUrl,
+    apiKey,
+  });
+  const roundId = await submitAttestationRequest(abiEncodedRequest);
+  const proof: IXrpPaymentProof = await retrieveXrpPaymentProofWithRetry(abiEncodedRequest, roundId);
+  console.log(`${tag}FDC proof obtained (votingRound=${proof.data.votingRound})`);
+
+  const assetManagerFxrpAddress = await getAssetManagerFXRPAddress();
+  console.log(`${tag}Calling executeDirectMintingWithData on ${assetManagerFxrpAddress} (value=${value})`);
+  const hash = await walletClient.writeContract({
+    account,
+    address: assetManagerFxrpAddress,
+    abi: iDirectMintingExtAbi,
+    functionName: "executeDirectMintingWithData",
+    args: [proof, data],
+    value,
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`${tag}executeDirectMintingWithData tx: ${hash}`);
+  return { hash, receipt };
+}
+
+/**
+ * Step 3 of the 0xFE flow — the **confirmation step**.
+ *
+ * The MasterAccountController emits `UserOperationExecuted` inside the same Flare transaction as
+ * `executeDirectMintingWithData`, so this just parses logs off the executor
+ * receipt rather than running a live event watcher. Returns the matching log
+ * or throws if not present (which would mean the UserOp didn't execute —
+ * e.g. the AssetManager hit a rate limit and emitted `DirectMintingDelayed`
+ * instead).
+ */
+export function findUserOperationExecuted(
+  receipt: TransactionReceipt,
+  personalAccount: Address,
+  nonce: bigint
+): UserOperationExecutedEventType {
+  const logs = parseEventLogs({
+    abi: iMemoInstructionsFacetAbi,
+    eventName: "UserOperationExecuted",
+    logs: receipt.logs,
+  });
+  for (const log of logs) {
+    const typedLog = log as unknown as UserOperationExecutedEventType;
+    if (
+      typedLog.args.personalAccount.toLowerCase() === personalAccount.toLowerCase() &&
+      typedLog.args.nonce === nonce
+    ) {
+      return typedLog;
+    }
+  }
+  throw new Error(
+    `UserOperationExecuted log not found on receipt ${receipt.transactionHash} for personalAccount=${personalAccount} nonce=${nonce}. ` +
+      "The AssetManager may have delayed the minting (rate limit / large minting) — check for DirectMintingDelayed."
+  );
 }
 
 export async function waitForUserOperationExecuted({
