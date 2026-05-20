@@ -30,6 +30,7 @@ flare-smart-accounts-viem/
 │   ├── state-lookup.ts
 │   ├── upshift-mint-and-deposit.ts
 │   ├── custom-instructions.ts
+│   ├── custom-instructions-raw.ts
 │   └── ...
 ├── package.json
 ├── README.md
@@ -63,7 +64,7 @@ This repo implements both paths via XRPL payments and waits for execution on Fla
    Actions are encoded as legacy instructions and sent via **XRPL Payment** to the operator address (memo = receipt, amount = fee). Fee from `getInstructionFee(encodedInstruction)`, which is keyed off the leading instruction-id byte and applies to both legacy and memo-opcode paths.
 
 3. **Memo-opcode UserOps (`0xFF`, `0xFE`)**  
-   Arbitrary EVM calls (target + value + data) bundled into a `PackedUserOperation` and executed by `MemoInstructionsFacet` via the FXRP direct-minting `handleMintedFAssets` callback. No registration step — the memo's first byte selects the opcode. See `custom-instructions.ts` (0xFF, UserOp inlined in the memo) and `custom-instructions-hash.ts` (0xFE, only `keccak256(userOp)` in the memo; the bytes travel via `_data`). Encoder helpers: `encodeExecuteUserOpMemo` / `encodeHashInstructionMemo` and senders `sendMemoFieldInstruction` / `sendHashInstruction` in `utils/smart-accounts.ts`. The 0xFE flow is exposed in scripts as three explicit steps: (1) `sendHashInstruction` (user side — XRPL Payment with the hash memo), (2) `executeDirectMintingWithData` (executor side — waits for the XRPL transaction to reach 3 confirmations per the FDC Payment finality requirement, fetches the proof, calls `AssetManagerFXRP.executeDirectMintingWithData(proof, _data, { value: totalCallValue })`), (3) `findUserOperationExecuted` (confirmation — parses the event off the executor receipt).
+   Arbitrary EVM calls (target + value + data) bundled into a `PackedUserOperation` and executed by `MemoInstructionsFacet` via the FXRP direct-minting `handleMintedFAssets` callback. No registration step - the memo's first byte selects the opcode. See `custom-instructions.ts` (0xFE, only `keccak256(userOp)` in the memo; the bytes travel via `_data`) and `custom-instructions-raw.ts` (0xFF, UserOp inlined in the memo). Encoder helpers: `encodeHashInstructionMemo` / `encodeExecuteUserOpMemo` and senders `sendHashInstruction` / `sendMemoFieldInstruction` in `utils/smart-accounts.ts`. The 0xFE flow is exposed in scripts as three explicit steps: (1) `sendHashInstruction` (user side - XRPL Payment with the hash memo), (2) `executeDirectMintingWithData` (executor side - waits for the XRPL transaction to reach 3 confirmations per the FDC Payment finality requirement, fetches the proof, calls `AssetManagerFXRP.executeDirectMintingWithData(proof, _data, { value: totalCallValue })`), (3) `findUserOperationExecuted` (confirmation - parses the event off the executor receipt).
 
 4. **FXRP and vaults**  
    FXRP = wrapped XRP on Flare. Vaults (Firelight/Upshift, ERC-4626) and agent vaults are registered on MasterAccountController. Helpers in `utils/fassets.ts` and `utils/smart-accounts.ts`.
@@ -73,7 +74,7 @@ This repo implements both paths via XRPL payments and waits for execution on Fla
 
 ## Where to Look When…
 
-- **Adding a new “do something with my smart account” script:** Reuse `utils/client.ts`, `utils/smart-accounts.ts`, and either `utils/xrpl.ts` (for XRPL payments) or existing scripts (e.g. `mint-and-transfer.ts`, `custom-instructions.ts`, `custom-instructions-hash.ts`) for the flow (encode → get fee → XRPL payment → wait for event).
+- **Adding a new “do something with my smart account” script:** Reuse `utils/client.ts`, `utils/smart-accounts.ts`, and either `utils/xrpl.ts` (for XRPL payments) or existing scripts (e.g. `mint-and-transfer.ts`, `custom-instructions.ts`, `custom-instructions-raw.ts`) for the flow (encode → get fee → XRPL payment → wait for event).
 - **Changing how instructions are encoded or sent:** `utils/smart-accounts.ts` (fees, personal account, memo-opcode UserOp encoding via `encodeExecuteUserOpMemo` / `encodeHashInstructionMemo`), and the encoder package for FXRP-specific legacy instructions.
 - **Adding or changing contract calls:** `src/abis/` for ABIs; `utils/client.ts` for `publicClient` / `walletClient` and chain.
 - **Lending examples:** `src/flare-lending/` (deposit-and-borrow flows over FXRP/MPT, with both 0xFF and 0xFE variants) and ABIs like `DummyBridge`, `DummyLending`, `ERC20`.
