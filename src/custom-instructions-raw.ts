@@ -5,6 +5,7 @@ import { abi as piggyBankAbi } from "./abis/PiggyBank";
 import { abi as noticeBoardAbi } from "./abis/NoticeBoard";
 import { getPersonalAccountAddress, sendMemoFieldInstruction, type Call } from "./utils/smart-accounts";
 import { computeDirectMintingPaymentAmountXrp } from "./utils/fassets";
+import { getXrpBalance } from "./utils/xrpl";
 
 // NOTE:(Nik) For this example to work, you first need to faucet C2FLR to your personal account address.
 async function main() {
@@ -65,6 +66,15 @@ async function main() {
   console.log("Personal account address:", personalAccount, "\n");
   console.log("Payment amount (XRP, net mint + fees):", paymentAmountXrp, "\n");
   console.log("Memo-only amount (XRP, fees only):", memoOnlyAmountXrp, "\n");
+
+  const totalRequiredXrp = paymentAmountXrp + memoOnlyAmountXrp;
+  const xrpBalance = await getXrpBalance(xrplWallet.address, xrplClient);
+  console.log("XRPL wallet XRP balance:", xrpBalance, "\n");
+  if (xrpBalance < totalRequiredXrp) {
+    throw new Error(
+      `Insufficient XRP balance on ${xrplWallet.address}: have ${xrpBalance} XRP, need ${totalRequiredXrp} XRP (both payments)`
+    );
+  }
 
   await sendMemoFieldInstruction({
     label: "checkpoint-and-deposit",
