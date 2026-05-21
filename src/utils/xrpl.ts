@@ -1,5 +1,25 @@
-import { Client, Wallet, xrpToDrops } from "xrpl";
+import { Client, Wallet, dropsToXrp, xrpToDrops } from "xrpl";
 import type { Memo } from "xrpl";
+
+export async function getXrpBalance(xrplAddress: string, client?: Client): Promise<number> {
+  const ownsClient = client === undefined;
+  const xrplClient = client ?? new Client(process.env.XRPL_TESTNET_RPC_URL!);
+  if (!xrplClient.isConnected()) {
+    await xrplClient.connect();
+  }
+  try {
+    const response = await xrplClient.request({
+      command: "account_info",
+      account: xrplAddress,
+      ledger_index: "validated",
+    });
+    return Number(dropsToXrp(response.result.account_data.Balance));
+  } finally {
+    if (ownsClient) {
+      await xrplClient.disconnect();
+    }
+  }
+}
 
 export type SendXrplPaymentInputType = {
   destination: string;

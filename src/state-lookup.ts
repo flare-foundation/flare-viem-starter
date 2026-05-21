@@ -1,6 +1,7 @@
 import { Wallet } from "xrpl";
 import { getAgentVaults, getOperatorXrplAddresses, getPersonalAccountAddress, getVaults } from "./utils/smart-accounts";
 import { getFxrpBalance } from "./utils/fassets";
+import { getXrpBalance } from "./utils/xrpl";
 import { publicClient } from "./utils/client";
 import { erc4626Abi } from "viem";
 import type { Address } from "viem";
@@ -26,6 +27,9 @@ async function main() {
 
   const fxrpBalance = await getFxrpBalance(personalAccountAddress);
   console.log("Personal account FXRP balance:", fxrpBalance, "\n");
+
+  const xrpBalance = await getXrpBalance(xrplWallet.address);
+  console.log("XRPL account XRP balance:", xrpBalance, "\n");
 
   const vaults = await getVaults();
   console.log("Vaults:", vaults, "\n");
