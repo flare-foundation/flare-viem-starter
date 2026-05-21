@@ -56,3 +56,71 @@ export async function sendXrplPayment({
 
   return transaction;
 }
+
+/**
+ * Number of XRPL ledger confirmations the FDC Payment attestation type requires
+ * before it will produce a proof. Source:
+ * https://dev.flare.network/fdc/attestation-types/payment ("XRPL | 3 | ≈12 seconds").
+ *
+ * `xrpl.submitAndWait` only gets us 1 confirmation (the transaction's own
+ * validated ledger), so the executor step must explicitly wait for two more
+ * ledgers to close before calling the FDC verifier — otherwise the verifier
+ * rejects the prepareRequest call with a "not finalized" status.
+ */
+export const XRPL_FDC_CONFIRMATIONS = 3;
+
+const FINALITY_POLL_INTERVAL_MS = 2_000;
+const FINALITY_TIMEOUT_MS = 60_000;
+
+/**
+ * Waits until the XRPL transaction has been buried under enough subsequent
+ * validated ledgers to satisfy the FDC Payment attestation finality
+ * requirement (default 3 ledgers including the transaction's own).
+ *
+ * Counts confirmations as `validated_ledger_index - tx_ledger_index + 1`, so a
+ * transaction in the latest validated ledger has 1 confirmation.
+ *
+ * The caller owns the client lifecycle; this helper connects on entry and
+ * disconnects on exit (matching `sendXrplPayment`'s pattern), so passing an
+ * already-disconnected client is fine.
+ */
+export async function waitForXrplFinality({
+  client,
+  transactionHash,
+  minConfirmations = XRPL_FDC_CONFIRMATIONS,
+  timeoutMs = FINALITY_TIMEOUT_MS,
+}: {
+  client: Client;
+  transactionHash: string;
+  minConfirmations?: number;
+  timeoutMs?: number;
+}): Promise<{ confirmations: number; txLedgerIndex: number; validatedLedgerIndex: number }> {
+  if (!client.isConnected()) {
+    await client.connect();
+  }
+  try {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const tx = await client.request({ command: "tx", transaction: transactionHash });
+      const txLedgerIndex = tx.result.ledger_index;
+      if (txLedgerIndex === undefined) {
+        throw new Error(`XRPL tx ${transactionHash} has no ledger_index — not yet validated`);
+      }
+      const ledger = await client.request({ command: "ledger", ledger_index: "validated" });
+      const validatedLedgerIndex = ledger.result.ledger_index;
+      const confirmations = validatedLedgerIndex - txLedgerIndex + 1;
+      if (confirmations >= minConfirmations) {
+        return { confirmations, txLedgerIndex, validatedLedgerIndex };
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `XRPL tx ${transactionHash} did not reach ${minConfirmations} confirmations within ${timeoutMs}ms ` +
+            `(current: ${confirmations}, txLedger=${txLedgerIndex}, validated=${validatedLedgerIndex})`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, FINALITY_POLL_INTERVAL_MS));
+    }
+  } finally {
+    await client.disconnect();
+  }
+}

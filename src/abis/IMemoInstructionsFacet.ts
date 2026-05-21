@@ -39,26 +39,7 @@ export const abi = [
   },
   {
     type: "function",
-    name: "isTransactionIdUsed",
-    inputs: [
-      {
-        name: "_transactionId",
-        type: "bytes32",
-        internalType: "bytes32",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "bool",
-        internalType: "bool",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "mintedFAssets",
+    name: "handleMintedFAssets",
     inputs: [
       {
         name: "_transactionId",
@@ -90,9 +71,33 @@ export const abi = [
         type: "address",
         internalType: "address payable",
       },
+      {
+        name: "_data",
+        type: "bytes",
+        internalType: "bytes",
+      },
     ],
     outputs: [],
     stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "isTransactionIdUsed",
+    inputs: [
+      {
+        name: "_transactionId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
   },
   {
     type: "event",
@@ -264,6 +269,22 @@ export const abi = [
         name: "returnData",
         type: "bytes",
         internalType: "bytes",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "CustomInstructionHashMismatch",
+    inputs: [
+      {
+        name: "expected",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "actual",
+        type: "bytes32",
+        internalType: "bytes32",
       },
     ],
   },
