@@ -1,74 +1,29 @@
-import { encodeFunctionData, type Address } from "viem";
+import { encodeFunctionData } from "viem";
 import { Client, Wallet } from "xrpl";
 import { abi as erc20Abi } from "../abis/ERC20";
 import { abi as rouletteAbi } from "../abis/Roulette";
 import { computeDirectMintingPaymentAmountXrp } from "../utils/fassets";
 import { getFxrpAddress } from "../utils/flare-contract-registry";
-import { getPersonalAccountAddress, sendMemoFieldInstruction, type Call } from "../utils/smart-accounts";
+import {
+  executeDirectMintingWithData,
+  findUserOperationExecuted,
+  getPersonalAccountAddress,
+  sendHashInstruction,
+  type Call,
+} from "../utils/smart-accounts";
 import { rouletteAddress } from "./deploys";
-import { formatFxrp, readChips, type RouletteContext } from "./utils";
-
-async function mintFxrpAndApprove({
-  context,
-  fxrpAddress,
-  approveAmount,
-  paymentAmountXrp,
-}: {
-  context: RouletteContext;
-  fxrpAddress: Address;
-  approveAmount: bigint;
-  paymentAmountXrp: number;
-}) {
-  const calls: Call[] = [
-    {
-      target: fxrpAddress,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [rouletteAddress, approveAmount],
-      }),
-    },
-  ];
-  await sendMemoFieldInstruction({
-    label: "mint-and-approve",
-    calls,
-    amountXrp: paymentAmountXrp,
-    personalAccount: context.personalAccount,
-    xrplClient: context.xrplClient,
-    xrplWallet: context.xrplWallet,
-  });
-}
-
-async function buyChips({ context, chipAmount }: { context: RouletteContext; chipAmount: bigint }) {
-  const calls: Call[] = [
-    {
-      target: rouletteAddress,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: rouletteAbi,
-        functionName: "buyChips",
-        args: [chipAmount],
-      }),
-    },
-  ];
-  await sendMemoFieldInstruction({
-    label: "buy-chips",
-    calls,
-    amountXrp: context.memoOnlyAmountXrp,
-    personalAccount: context.personalAccount,
-    xrplClient: context.xrplClient,
-    xrplWallet: context.xrplWallet,
-  });
-}
+import { formatFxrp, readChips } from "./utils";
 
 // NOTE:(Nik) For this example to work, you first need to faucet C2FLR to your
-// personal account address. We can't fit FXRP `approve` + Roulette `buyChips`
-// in a single XRPL memo (two ABI-encoded calls plus the user-op envelope
-// overflow the ~1024-byte cap), so we use two payments:
-//   1. Mint FXRP into the personal account and run `approve(roulette, …)` —
-//      one call, fits comfortably.
-//   2. A memo-only follow-up that calls `buyChips`.
+// personal account address. With 0xFE the XRPL memo is a constant 42 bytes,
+// so the FXRP `approve` and Roulette `buyChips` calls that the 0xFF flow
+// split across two payments fit into a single batch here. The XRPL payment
+// also carries the FXRP mint amount so the personal account receives FXRP
+// before `buyChips` runs (calls within a single user op execute atomically
+// after the AssetManager has already credited FXRP).
+//
+// 0xFE is a three-step protocol; this script runs all three steps inline.
+//
 // The Roulette address is read from ./deploys.ts — redeploy via
 // `yarn hardhat run scripts/roulette/deploy.ts --network coston2` in
 // flare-hardhat-starter and update the address there.
@@ -82,24 +37,61 @@ async function main() {
   const xrplClient = new Client(process.env.XRPL_TESTNET_RPC_URL!);
   const xrplWallet = Wallet.fromSeed(process.env.XRPL_SEED!);
 
-  const [personalAccount, fxrpAddress, paymentAmountXrp, memoOnlyAmountXrp] = await Promise.all([
+  const [personalAccount, fxrpAddress, paymentAmountXrp] = await Promise.all([
     getPersonalAccountAddress(xrplWallet.address),
     getFxrpAddress(),
     computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: fxrpMintAmount }),
-    computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: 0 }),
   ]);
   console.log("Personal account address:", personalAccount, "\n");
   console.log("FXRP address:", fxrpAddress, "\n");
   console.log("Payment amount (XRP, net mint + fees):", paymentAmountXrp, "\n");
-  console.log("Memo-only amount (XRP, fees only):", memoOnlyAmountXrp, "\n");
-
-  const context: RouletteContext = { personalAccount, memoOnlyAmountXrp, xrplClient, xrplWallet };
 
   const chipsBefore = await readChips(personalAccount);
   console.log("Chips before:", formatFxrp(chipsBefore), "FXRP\n");
 
-  await mintFxrpAndApprove({ context, fxrpAddress, approveAmount: chipAmount, paymentAmountXrp });
-  await buyChips({ context, chipAmount });
+  const calls: Call[] = [
+    {
+      target: fxrpAddress,
+      value: 0n,
+      data: encodeFunctionData({
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [rouletteAddress, chipAmount],
+      }),
+    },
+    {
+      target: rouletteAddress,
+      value: 0n,
+      data: encodeFunctionData({
+        abi: rouletteAbi,
+        functionName: "buyChips",
+        args: [chipAmount],
+      }),
+    },
+  ];
+
+  // --- 1. USER SIDE -------------------------------------------------------
+  const userSide = await sendHashInstruction({
+    label: "mint-approve-and-buy-chips",
+    calls,
+    amountXrp: paymentAmountXrp,
+    personalAccount,
+    xrplClient,
+    xrplWallet,
+  });
+
+  // --- 2. EXECUTOR SIDE ---------------------------------------------------
+  const { receipt } = await executeDirectMintingWithData({
+    xrplTransactionHash: userSide.xrplTransactionHash,
+    data: userSide.data,
+    value: userSide.totalCallValue,
+    xrplClient,
+    label: "mint-approve-and-buy-chips",
+  });
+
+  // --- 3. CONFIRMATION ----------------------------------------------------
+  const event = findUserOperationExecuted(receipt, personalAccount, userSide.nonce);
+  console.log("UserOperationExecuted:", event, "\n");
 
   const chipsAfter = await readChips(personalAccount);
   console.log("Chips after:", formatFxrp(chipsAfter), "FXRP\n");

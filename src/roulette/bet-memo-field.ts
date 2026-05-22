@@ -4,13 +4,7 @@ import { Client, Wallet } from "xrpl";
 import { abi as rouletteAbi } from "../abis/Roulette";
 import { publicClient } from "../utils/client";
 import { computeDirectMintingPaymentAmountXrp } from "../utils/fassets";
-import {
-  executeDirectMintingWithData,
-  findUserOperationExecuted,
-  getPersonalAccountAddress,
-  sendHashInstruction,
-  type Call,
-} from "../utils/smart-accounts";
+import { getPersonalAccountAddress, sendMemoFieldInstruction, type Call } from "../utils/smart-accounts";
 import { rouletteAddress } from "./deploys";
 import { formatFxrp, readChips, type RouletteContext } from "./utils";
 
@@ -47,9 +41,7 @@ async function placeBet({
       }),
     },
   ];
-
-  // --- 1. USER SIDE -------------------------------------------------------
-  const userSide = await sendHashInstruction({
+  const submissionEvent = await sendMemoFieldInstruction({
     label: "place-bet",
     calls,
     amountXrp: context.memoOnlyAmountXrp,
@@ -58,18 +50,7 @@ async function placeBet({
     xrplWallet: context.xrplWallet,
   });
 
-  // --- 2. EXECUTOR SIDE ---------------------------------------------------
-  const { receipt } = await executeDirectMintingWithData({
-    xrplTransactionHash: userSide.xrplTransactionHash,
-    data: userSide.data,
-    value: userSide.totalCallValue,
-    xrplClient: context.xrplClient,
-    label: "place-bet",
-  });
-
-  // --- 3. CONFIRMATION ----------------------------------------------------
-  findUserOperationExecuted(receipt, context.personalAccount, userSide.nonce);
-
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: submissionEvent.transactionHash! });
   const betPlacedLogs = parseEventLogs({ abi: rouletteAbi, eventName: "BetPlaced", logs: receipt.logs });
   const betPlacedLog = betPlacedLogs.find(
     (log) => log.args.player.toLowerCase() === context.personalAccount.toLowerCase()
@@ -125,9 +106,7 @@ async function settleBet({ context, betId }: { context: RouletteContext; betId: 
       }),
     },
   ];
-
-  // --- 1. USER SIDE -------------------------------------------------------
-  const userSide = await sendHashInstruction({
+  const submissionEvent = await sendMemoFieldInstruction({
     label: "settle-bet",
     calls,
     amountXrp: context.memoOnlyAmountXrp,
@@ -136,18 +115,7 @@ async function settleBet({ context, betId }: { context: RouletteContext; betId: 
     xrplWallet: context.xrplWallet,
   });
 
-  // --- 2. EXECUTOR SIDE ---------------------------------------------------
-  const { receipt } = await executeDirectMintingWithData({
-    xrplTransactionHash: userSide.xrplTransactionHash,
-    data: userSide.data,
-    value: userSide.totalCallValue,
-    xrplClient: context.xrplClient,
-    label: "settle-bet",
-  });
-
-  // --- 3. CONFIRMATION ----------------------------------------------------
-  findUserOperationExecuted(receipt, context.personalAccount, userSide.nonce);
-
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: submissionEvent.transactionHash! });
   const betSettledLogs = parseEventLogs({ abi: rouletteAbi, eventName: "BetSettled", logs: receipt.logs });
   const betSettledLog = betSettledLogs.find((log) => log.args.betId === betId);
   if (!betSettledLog) {
@@ -165,18 +133,13 @@ async function settleBet({ context, betId }: { context: RouletteContext; betId: 
   return betSettledLog.args;
 }
 
-// NOTE:(Nik) Run src/roulette/fund-game.ts first to mint FXRP and buy
-// chips for the personal account. The contract owner must also have called
+// NOTE:(Nik) Run src/roulette/fund-game-memo-field.ts first to mint FXRP and buy chips
+// for the personal account. The contract owner must also have called
 // `fundHouse` with enough FXRP to cover `betAmount * 35` (the worst-case
 // straight-up payout) — even outside-bet plays are gated on the same
-// solvency check via `outstandingMaxLoss`. Run src/roulette/cash-out.ts
+// solvency check via `outstandingMaxLoss`. Run src/roulette/cash-out-memo-field.ts
 // afterwards to convert remaining chips back to FXRP. The Roulette address
 // is read from ./deploys.ts.
-//
-// Two batches here are sequential, not memo-size driven: placeBet has to
-// land and the next secure-random round has to publish before settleBet can
-// run. Each batch internally runs the full 0xFE three-step protocol (user
-// → executor → confirmation).
 async function main() {
   const betAmount = 1n * 10n ** 6n;
   const bet = { kind: BetKind.BLACK, selection: 0 };
