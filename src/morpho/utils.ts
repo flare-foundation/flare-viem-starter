@@ -1,9 +1,9 @@
-import { encodeAbiParameters, encodeFunctionData, formatUnits, keccak256, parseAbi, type Address } from "viem";
+import { encodeAbiParameters, encodeFunctionData, formatUnits, keccak256, maxUint256, parseAbi, type Address } from "viem";
 import { Client, Wallet } from "xrpl";
 import { abi as ERC20Abi } from "../abis/ERC20";
 import { abi as MorphoBlueAbi } from "../abis/MorphoBlue";
 import { account, publicClient, walletClient } from "../utils/client";
-import { sendMemoFieldInstruction } from "../utils/smart-accounts";
+import { sendHashInstruction, sendMemoFieldInstruction, type Call, type HashInstructionUserSide } from "../utils/smart-accounts";
 
 // Coston2 Morpho Blue test stack (mock tokens, mock oracle, mock IRM).
 export const MORPHO_BLUE_ADDRESS = "0x8aE0b3CE90F16E88063516f2d88C8ac2ab552d95" as Address;
@@ -17,9 +17,20 @@ export const LLTV = 860000000000000000n; // 86 %
 export const MORPHO_MARKET_SHIM_ADDRESS = "0x33d81a1d7986bB3AbAB4F67Ad6117233ADd6F87A" as Address;
 
 export const WAD = 10n ** 18n;
-export const MAX_UINT256 = 2n ** 256n - 1n;
 // Allowance >= this counts as "approved unlimited" for setup-skip purposes.
 const APPROVAL_THRESHOLD = 2n ** 255n;
+
+function buildApproveCall(token: Address, spender: Address): Call {
+  return {
+    target: token,
+    value: 0n,
+    data: encodeFunctionData({
+      abi: ERC20Abi,
+      functionName: "approve",
+      args: [spender, maxUint256],
+    }),
+  };
+}
 
 // The mock collateral and loan tokens expose an unauthenticated setBalance(account, amount).
 export const MOCK_ERC20_ABI = parseAbi(["function setBalance(address account, uint256 amount)"]);
@@ -97,7 +108,7 @@ export async function mintMock(tokenAddress: Address, recipient: Address, amount
 // emitted as its own XRPL memo because two of these calls do not fit in a
 // single 1024-byte memo together (a single call already runs ~810 bytes).
 // Idempotent: reads on-chain state first and skips any action already done.
-export async function ensureShimSetup({
+export async function ensureShimSetupMemoField({
   personalAccount,
   xrplClient,
   xrplWallet,
@@ -140,34 +151,14 @@ export async function ensureShimSetup({
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-collateral",
-      calls: [
-        {
-          target: COLLATERAL_TOKEN_ADDRESS,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: ERC20Abi,
-            functionName: "approve",
-            args: [MORPHO_MARKET_SHIM_ADDRESS, MAX_UINT256],
-          }),
-        },
-      ],
+      calls: [buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (loanAllowance < APPROVAL_THRESHOLD) {
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-loan",
-      calls: [
-        {
-          target: LOAN_TOKEN_ADDRESS,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: ERC20Abi,
-            functionName: "approve",
-            args: [MORPHO_MARKET_SHIM_ADDRESS, MAX_UINT256],
-          }),
-        },
-      ],
+      calls: [buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (!morphoAuthorized) {
@@ -187,6 +178,66 @@ export async function ensureShimSetup({
       ],
     });
   }
+}
+
+// 0xFE counterpart of ensureShimSetupMemoField. The personal account calls Morpho
+// Blue directly (no shim involved), so the only setup required is approving
+// Morpho for both tokens — the collateral approval enables supplyCollateral
+// and the loan approval enables share-denominated repay. No setAuthorization
+// is needed because msg.sender on each Morpho call is the personal account
+// itself. Both approvals collapse into a single hash-instruction batch since
+// the 0xFE memo is constant 42 bytes regardless of call count.
+//
+// Returns only the user-side artifacts (or null if setup is already complete);
+// the caller is expected to run the executor and confirmation steps explicitly,
+// the same way the other 0xFE example scripts do.
+export async function buildMorphoSetupUserSide({
+  personalAccount,
+  xrplClient,
+  xrplWallet,
+  amountXrp,
+}: {
+  personalAccount: Address;
+  xrplClient: Client;
+  xrplWallet: Wallet;
+  amountXrp: number;
+}): Promise<HashInstructionUserSide | null> {
+  const [collateralAllowance, loanAllowance] = (await Promise.all([
+    publicClient.readContract({
+      address: COLLATERAL_TOKEN_ADDRESS,
+      abi: ERC20Abi,
+      functionName: "allowance",
+      args: [personalAccount, MORPHO_BLUE_ADDRESS],
+    }),
+    publicClient.readContract({
+      address: LOAN_TOKEN_ADDRESS,
+      abi: ERC20Abi,
+      functionName: "allowance",
+      args: [personalAccount, MORPHO_BLUE_ADDRESS],
+    }),
+  ])) as [bigint, bigint];
+
+  if (collateralAllowance >= APPROVAL_THRESHOLD && loanAllowance >= APPROVAL_THRESHOLD) {
+    console.log("Smart account → Morpho setup already complete — skipping setup memo.\n");
+    return null;
+  }
+
+  const calls: Call[] = [];
+  if (collateralAllowance < APPROVAL_THRESHOLD) {
+    calls.push(buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+  }
+  if (loanAllowance < APPROVAL_THRESHOLD) {
+    calls.push(buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+  }
+
+  return sendHashInstruction({
+    label: "morpho-setup",
+    calls,
+    amountXrp,
+    personalAccount,
+    xrplClient,
+    xrplWallet,
+  });
 }
 
 export async function getAndLogState(

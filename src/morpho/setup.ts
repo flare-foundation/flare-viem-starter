@@ -1,28 +1,32 @@
 import { Client, Wallet } from "xrpl";
-import { account } from "../utils/client";
-import { getPersonalAccountAddress } from "../utils/smart-accounts";
+import {
+  executeDirectMintingWithData,
+  findUserOperationExecuted,
+  getPersonalAccountAddress,
+} from "../utils/smart-accounts";
 import { computeDirectMintingPaymentAmountXrp } from "../utils/fassets";
 import {
   COLLATERAL_TOKEN_ADDRESS,
   LOAN_TOKEN_ADDRESS,
-  MORPHO_MARKET_SHIM_ADDRESS,
-  ensureShimSetup,
+  buildMorphoSetupUserSide,
   fetchMarketDecimals,
   getAndLogState,
   marketId,
   mintMock,
 } from "./utils";
 
-// NOTE:(Nik) One-shot init for the Morpho cycle scripts. Funds the smart
-// account with mock collateral and loan tokens (mock setBalance is
-// permissionless, so the EOA can mint to anyone), then sends up to three
-// setup memos from the smart account: approve(shim) for both tokens and
-// setAuthorization(shim) on Morpho. Idempotent — safe to re-run; each step
-// reads on-chain state and skips if already in place.
-//
-// The loan-token buffer is sized to absorb interest paid across many
-// borrow/repay cycles before re-funding is needed. Collateral round-trips
-// via supply/withdraw so doesn't drain.
+// NOTE:(Nik) 0xFE counterpart of src/morpho/setup-memo-field.ts. The 0xFE memo is a
+// constant 42 bytes, so the smart account can call Morpho Blue directly
+// without the MorphoMarketShim that setup-memo-field.ts needs to fit calls under the
+// 1024-byte memo cap. Setup is therefore just two approvals (collateral and
+// loan token) to Morpho Blue; no setAuthorization is needed because msg.sender
+// on each Morpho call is the personal account itself. Both approvals collapse
+// into a single hash-instruction batch. Funds the smart account with mock
+// collateral and loan tokens (mock setBalance is permissionless, so the
+// externally owned account can mint to anyone), then runs the 0xFE three-step
+// protocol (user → executor → confirmation) for the remaining approvals.
+// Idempotent — safe to re-run; reads on-chain state and skips entirely if
+// already in place.
 async function main() {
   // 100 units of collateral is exactly the supply size used by borrow.ts;
   // 1000 units of loan token gives a generous buffer over the ~85 borrowed
@@ -40,9 +44,7 @@ async function main() {
   ]);
 
   console.log("Personal account:", personalAccount, "\n");
-  console.log("Operator EOA:    ", account.address, "\n");
   console.log("Morpho market id:", marketId, "\n");
-  console.log("Shim address:    ", MORPHO_MARKET_SHIM_ADDRESS, "\n");
 
   await getAndLogState("Before setup", personalAccount, marketDecimals);
 
@@ -54,7 +56,33 @@ async function main() {
   await mintMock(LOAN_TOKEN_ADDRESS, personalAccount, loanFundingUnits * 10n ** BigInt(marketDecimals.loanDecimals));
   console.log("Funded smart account with collateral and loan tokens.\n");
 
-  await ensureShimSetup({ personalAccount, xrplClient, xrplWallet, amountXrp: memoOnlyAmountXrp });
+  // --- 1. USER SIDE -------------------------------------------------------
+  // buildMorphoSetupUserSide reads on-chain state and emits the XRPL
+  // Payment only for whatever approvals are still missing; returns null
+  // when nothing needs to be done.
+  const userSide = await buildMorphoSetupUserSide({
+    personalAccount,
+    xrplClient,
+    xrplWallet,
+    amountXrp: memoOnlyAmountXrp,
+  });
+
+  if (userSide == null) {
+    return;
+  }
+
+  // --- 2. EXECUTOR SIDE -------------------------------------------------
+  const { receipt } = await executeDirectMintingWithData({
+    xrplTransactionHash: userSide.xrplTransactionHash,
+    data: userSide.data,
+    value: userSide.totalCallValue,
+    xrplClient,
+    label: "morpho-setup",
+  });
+
+  // --- 3. CONFIRMATION --------------------------------------------------
+  const event = findUserOperationExecuted(receipt, personalAccount, userSide.nonce);
+  console.log("UserOperationExecuted:", event, "\n");
 
   await getAndLogState("After setup", personalAccount, marketDecimals);
 }
