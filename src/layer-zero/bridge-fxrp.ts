@@ -33,19 +33,19 @@ async function approveTokens(fAssetAddress: Address, amountToBridge: bigint, dec
     abi: fxrpOftAbi,
     functionName: "token",
   });
-  console.log("\n1. OFT Adapter underlying token:", underlyingToken);
-  console.log("   Expected token:", fAssetAddress);
-  console.log("   Match:", underlyingToken.toLowerCase() === fAssetAddress.toLowerCase());
+  console.log("\nOFT Adapter underlying token:", underlyingToken);
+  console.log("Expected token:", fAssetAddress);
+  console.log("Match:", underlyingToken.toLowerCase() === fAssetAddress.toLowerCase());
 
-  console.log("\n   Approving FTestXRP for OFT Adapter:", CONFIG.COSTON2_OFT_ADAPTER);
-  console.log("   Amount:", formatUnits(amountToBridge, decimals), "FXRP");
+  console.log("\nApproving FTestXRP for OFT Adapter:", CONFIG.COSTON2_OFT_ADAPTER);
+  console.log("Amount:", formatUnits(amountToBridge, decimals), "FXRP");
   await approveSpender(fAssetAddress, CONFIG.COSTON2_OFT_ADAPTER, amountToBridge);
-  console.log("   OFT Adapter approved");
+  console.log("OFT Adapter approved");
 
   if (CONFIG.COSTON2_COMPOSER) {
-    console.log("\n2. Approving FTestXRP for Composer:", CONFIG.COSTON2_COMPOSER);
+    console.log("\nApproving FTestXRP for Composer:", CONFIG.COSTON2_COMPOSER);
     await approveSpender(fAssetAddress, CONFIG.COSTON2_COMPOSER, amountToBridge);
-    console.log("   Composer approved");
+    console.log("Composer approved");
   }
 }
 
@@ -70,12 +70,12 @@ async function quoteFee(sendParam: SendParam) {
     functionName: "quoteSend",
     args: [sendParam, false],
   });
-  console.log("\n3. LayerZero Fee:", formatUnits(nativeFee, 18), "C2FLR");
+  console.log("LayerZero Fee:", formatUnits(nativeFee, 18), "C2FLR");
   return nativeFee;
 }
 
 async function executeBridge(sendParam: SendParam, nativeFee: bigint, signerAddress: Address) {
-  console.log("\n4. Sending FXRP to Sepolia...");
+  console.log("\nSending FXRP to Sepolia...");
 
   const { request } = await publicClient.simulateContract({
     account,
