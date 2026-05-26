@@ -229,8 +229,12 @@ This module has two independent setup scripts and four flow scripts. The order i
 Issues a fresh MPT (Multi-Purpose Token) from `MPT_ISSUER_SEED` with hardcoded `DEMO` metadata, sends 10 000 000 000 base units to `VAULT_SEED`, and writes the resulting issuance ID into `src/flare-lending/config.ts` as `export const MPT_ISSUANCE_ID`.
 
 - **Env:** `XRPL_TESTNET_RPC_URL`, `MPT_ISSUER_SEED`, `VAULT_SEED`.
-- **Prereqs:** both XRPL accounts funded with XRP for reserves and fees; the XRPL testnet must have the MPTokensV1 amendment enabled.
+- **Prereqs:** `MPT_ISSUER_SEED` and `VAULT_SEED` must resolve to two *different* XRPL accounts.
+  Both accounts funded with XRP for reserves and fees.
+  The XRPL testnet must have the MPTokensV1 amendment enabled.
 - **Status:** setup. Consumed by every `(certified-)deposit-fxrp-borrow-mpt*` script.
+
+> The issuer account cannot authorize itself to hold its own MPT, so if both seeds resolve to the same r-address the second step (`MPTokenAuthorize` from the vault) fails with `tecNO_PERMISSION`. Use a separate funded XRPL account for `VAULT_SEED`.
 
 #### `issue-credential.ts`
 

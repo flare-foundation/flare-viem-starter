@@ -80,6 +80,12 @@ async function main() {
     throw new Error("Missing XRPL_TESTNET_RPC_URL, MPT_ISSUER_SEED, or VAULT_SEED in .env");
   }
 
+  if (Wallet.fromSeed(issuerXrplSeed).address === Wallet.fromSeed(vaultSeed).address) {
+    throw new Error(
+      "MPT_ISSUER_SEED and VAULT_SEED resolve to the same XRPL account. The issuer cannot authorize itself to hold its own MPT; use two different funded XRPL accounts."
+    );
+  }
+
   const mptMetadata = {
     ticker: "DEMO",
     name: "Demo MPT",
