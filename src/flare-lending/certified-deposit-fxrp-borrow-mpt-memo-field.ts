@@ -11,13 +11,7 @@ import {
   submitAttestationRequest,
   type Web2JsonProof,
 } from "../utils/fdc";
-import {
-  executeDirectMintingWithData,
-  findUserOperationExecuted,
-  getPersonalAccountAddress,
-  sendHashInstruction,
-  type Call,
-} from "../utils/smart-accounts";
+import { getPersonalAccountAddress, sendMemoFieldInstruction, type Call } from "../utils/smart-accounts";
 import { computeDirectMintingPaymentAmountXrp } from "../utils/fassets";
 import { findLatestInitiateBridgeEventInLast30Blocks, transferEventAmountMptToXrplAddress } from "./utils";
 
@@ -145,12 +139,6 @@ async function validateUser(
 }
 
 // NOTE:(Nik) For this example to work, you first need to faucet C2FLR to your personal account address.
-// 0xFE is a three-step protocol; this script runs all three steps inline
-// (user → executor → confirmation). With the 42-byte memo cap removed, the
-// whole flow — approve FXRP, deposit collateral, take loan, approve USDT,
-// initiate bridge — fits in a single user op and runs atomically.
-// The upfront `validateUser` FDC Web2Json proof fetch is independent of the
-// 0xFE memo flow.
 async function main() {
   // Net FXRP amount to mint in XRP. Minting + executor fees are fetched from
   // AssetManagerFXRP and added on top to form the XRPL payment amount.
@@ -169,16 +157,22 @@ async function main() {
   const amountToDeposit = 100;
   const amountToBorrow = 10n;
 
-  const [personalAccount, paymentAmountXrp] = await Promise.all([
-    getPersonalAccountAddress(xrplWallet.address),
-    computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: fxrpMintAmount }),
-  ]);
+  const personalAccount = await getPersonalAccountAddress(xrplWallet.address);
   console.log("Personal account address:", personalAccount, "\n");
-  console.log("Payment amount (XRP, net mint + fees):", paymentAmountXrp, "\n");
 
   await validateUser(xrplWallet, personalAccount, dummyLendingAddress);
 
-  const calls: Call[] = [
+  const [paymentAmountXrp, memoOnlyAmountXrp] = await Promise.all([
+    computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: fxrpMintAmount }),
+    computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: 0 }),
+  ]);
+  console.log("Payment amount (XRP, net mint + fees):", paymentAmountXrp, "\n");
+  console.log("Memo-only amount (XRP, fees only):", memoOnlyAmountXrp, "\n");
+
+  // XRPL caps each memo at ~1024 bytes. The `approve` and `initiateBridge`
+  // encodings are large enough that no 2-call combination fits except
+  // `[depositCollateral, takeLoan]`, so the 5 calls split into 4 batches.
+  const approveFxrpCalls: Call[] = [
     {
       target: FXRPAddress,
       value: BigInt(0),
@@ -188,6 +182,8 @@ async function main() {
         args: [dummyLendingAddress, amountToDeposit],
       }),
     },
+  ];
+  const depositAndBorrowCalls: Call[] = [
     {
       target: dummyLendingAddress,
       value: BigInt(0),
@@ -206,6 +202,8 @@ async function main() {
         args: [amountToBorrow],
       }),
     },
+  ];
+  const approveUsdtCalls: Call[] = [
     {
       target: dummyERC20Address,
       value: BigInt(0),
@@ -215,6 +213,8 @@ async function main() {
         args: [dummyBridgeAddress, amountToBorrow],
       }),
     },
+  ];
+  const bridgeCalls: Call[] = [
     {
       target: dummyBridgeAddress,
       value: BigInt(0),
@@ -226,27 +226,41 @@ async function main() {
     },
   ];
 
-  // --- 1. USER SIDE -------------------------------------------------------
-  const userSide = await sendHashInstruction({
-    label: "deposit-borrow-bridge",
-    calls,
+  await sendMemoFieldInstruction({
+    label: "approve-fxrp",
+    calls: approveFxrpCalls,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,
     xrplWallet,
   });
 
-  // --- 2. EXECUTOR SIDE ---------------------------------------------------
-  const { receipt } = await executeDirectMintingWithData({
-    xrplTransactionHash: userSide.xrplTransactionHash,
-    data: userSide.data,
-    value: userSide.totalCallValue,
+  await sendMemoFieldInstruction({
+    label: "deposit-and-borrow",
+    calls: depositAndBorrowCalls,
+    amountXrp: memoOnlyAmountXrp,
+    personalAccount,
     xrplClient,
-    label: "deposit-borrow-bridge",
+    xrplWallet,
   });
 
-  // --- 3. CONFIRMATION ----------------------------------------------------
-  findUserOperationExecuted(receipt, personalAccount, userSide.nonce);
+  await sendMemoFieldInstruction({
+    label: "approve-usdt",
+    calls: approveUsdtCalls,
+    amountXrp: memoOnlyAmountXrp,
+    personalAccount,
+    xrplClient,
+    xrplWallet,
+  });
+
+  await sendMemoFieldInstruction({
+    label: "bridge",
+    calls: bridgeCalls,
+    amountXrp: memoOnlyAmountXrp,
+    personalAccount,
+    xrplClient,
+    xrplWallet,
+  });
 
   const initiateBridgeEvent = await findLatestInitiateBridgeEventInLast30Blocks({
     bridgeAddress: dummyBridgeAddress as `0x${string}`,

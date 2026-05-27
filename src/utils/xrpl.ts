@@ -30,6 +30,43 @@ export type SendXrplPaymentInputType = {
   client: Client;
 };
 
+/**
+ * Reads the XRPL account's XRP balance and throws if it is below `requiredXrp`.
+ * Returns the observed balance on success.
+ *
+ * Connects the client if it isn't already connected (and disconnects on exit
+ * in that case), matching the lifecycle pattern of `sendXrplPayment` and
+ * `waitForXrplFinality`.
+ */
+export async function assertSufficientXrpBalance({
+  client,
+  address,
+  requiredXrp,
+}: {
+  client: Client;
+  address: string;
+  requiredXrp: number;
+}): Promise<number> {
+  const wasConnected = client.isConnected();
+  if (!wasConnected) {
+    await client.connect();
+  }
+  try {
+    const balanceXrp = await client.getXrpBalance(address);
+    if (balanceXrp < requiredXrp) {
+      throw new Error(
+        `XRPL account ${address} has insufficient XRP balance: ` +
+          `${balanceXrp} XRP available, ${requiredXrp} XRP required`
+      );
+    }
+    return balanceXrp;
+  } finally {
+    if (!wasConnected) {
+      await client.disconnect();
+    }
+  }
+}
+
 export async function sendXrplPayment({
   destination,
   memos,
