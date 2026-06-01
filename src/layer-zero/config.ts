@@ -4,9 +4,9 @@ import type { Address } from "viem";
 export const config = {
   // FXRP OFT on Sepolia. Required - set via the SEPOLIA_FXRP_OFT env var (no default).
   SEPOLIA_FXRP_OFT: process.env.SEPOLIA_FXRP_OFT as Address | undefined,
-  // Coston2 OFT Adapter for the FXRP -> Sepolia route. The adapter exposes the
-  // LayerZero IOFT interface (send / quoteSend) directly, so the 0xFE flow can
-  // drive it without a memo-cap shim.
+  // Coston2 OFT Adapter for the FXRP -> Sepolia route. Exposes the LayerZero
+  // IOFT interface (send / quoteSend) directly - driven both by the direct
+  // bridge script and by the 0xFE mint flow (no memo-cap shim needed).
   COSTON2_OFT_ADAPTER: "0xCd3d2127935Ae82Af54Fc31cCD9D3440dbF46639" as Address,
   // FAsset redeem composer on Coston2 (the auto-redeem destination).
   COSTON2_COMPOSER: (process.env.COSTON2_COMPOSER ?? "0xa10569DFb38FE7Be211aCe4E4A566Cea387023b0") as Address,
