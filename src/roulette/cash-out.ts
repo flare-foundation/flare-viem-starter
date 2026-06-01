@@ -44,7 +44,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "cash-out",
-    calls: [
+    customInstruction: [
       {
         target: rouletteAddress,
         value: 0n,

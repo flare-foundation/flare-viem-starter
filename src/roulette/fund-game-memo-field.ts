@@ -19,7 +19,7 @@ async function mintFxrpAndApprove({
   approveAmount: bigint;
   paymentAmountXrp: number;
 }) {
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: fxrpAddress,
       value: 0n,
@@ -32,7 +32,7 @@ async function mintFxrpAndApprove({
   ];
   await sendMemoFieldInstruction({
     label: "mint-and-approve",
-    calls,
+    customInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount: context.personalAccount,
     xrplClient: context.xrplClient,
@@ -41,7 +41,7 @@ async function mintFxrpAndApprove({
 }
 
 async function buyChips({ context, chipAmount }: { context: RouletteContext; chipAmount: bigint }) {
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: rouletteAddress,
       value: 0n,
@@ -54,7 +54,7 @@ async function buyChips({ context, chipAmount }: { context: RouletteContext; chi
   ];
   await sendMemoFieldInstruction({
     label: "buy-chips",
-    calls,
+    customInstruction,
     amountXrp: context.memoOnlyAmountXrp,
     personalAccount: context.personalAccount,
     xrplClient: context.xrplClient,

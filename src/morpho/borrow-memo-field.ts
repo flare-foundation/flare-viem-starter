@@ -64,7 +64,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "supply-and-borrow",
-    calls: [
+    customInstruction: [
       {
         target: MORPHO_MARKET_SHIM_ADDRESS,
         value: 0n,

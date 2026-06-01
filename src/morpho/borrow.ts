@@ -68,7 +68,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "supply-and-borrow",
-    calls: [
+    customInstruction: [
       {
         target: MORPHO_BLUE_ADDRESS,
         value: 0n,

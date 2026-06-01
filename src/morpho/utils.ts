@@ -151,21 +151,21 @@ export async function ensureShimSetupMemoField({
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-collateral",
-      calls: [buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
+      customInstruction: [buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (loanAllowance < APPROVAL_THRESHOLD) {
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-loan",
-      calls: [buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
+      customInstruction: [buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (!morphoAuthorized) {
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "set-authorization",
-      calls: [
+      customInstruction: [
         {
           target: MORPHO_BLUE_ADDRESS,
           value: 0n,
@@ -222,17 +222,17 @@ export async function buildMorphoSetupUserSide({
     return null;
   }
 
-  const calls: Call[] = [];
+  const customInstruction: Call[] = [];
   if (collateralAllowance < APPROVAL_THRESHOLD) {
-    calls.push(buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+    customInstruction.push(buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
   }
   if (loanAllowance < APPROVAL_THRESHOLD) {
-    calls.push(buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+    customInstruction.push(buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
   }
 
   return sendHashInstruction({
     label: "morpho-setup",
-    calls,
+    customInstruction,
     amountXrp,
     personalAccount,
     xrplClient,

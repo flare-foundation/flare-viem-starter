@@ -121,7 +121,7 @@ async function main() {
   console.log("XRPL payment amount (mint + fees):", paymentAmountXrp, "XRP");
   console.log("LayerZero native fee:", formatUnits(nativeFee, 18), "C2FLR");
 
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: fxrpAddress,
       value: 0n,
@@ -149,7 +149,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "mint-approve-and-bridge",
-    calls,
+    customInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

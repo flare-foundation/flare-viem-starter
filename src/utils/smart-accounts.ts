@@ -189,18 +189,18 @@ export async function getMintingTagManagerAddress(): Promise<Address> {
 }
 
 function encodePackedUserOpData({
-  calls,
+  customInstruction,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
   const callData = encodeFunctionData({
     abi: coston2.iPersonalAccountAbi,
     functionName: "executeUserOp",
-    args: [calls],
+    args: [customInstruction],
   });
 
   return encodeAbiParameters(
@@ -225,19 +225,19 @@ function encodePackedUserOpData({
 // after the 10-byte header. The encoder owns the byte layout
 // [0xFF | walletId(1B) | executorFeeUBA(8B) | packedUserOperation].
 export function encodeExecuteUserOpMemo({
-  calls,
+  customInstruction,
   walletId,
   executorFeeUBA,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   walletId: number;
   executorFeeUBA: bigint;
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
-  const packedUserOperation = encodePackedUserOpData({ calls, sender, nonce });
+  const packedUserOperation = encodePackedUserOpData({ customInstruction, sender, nonce });
   return new MemoFieldUserOpCustomInstruction({ walletId, executorFeeUBA, packedUserOperation }).encode();
 }
 
@@ -246,19 +246,19 @@ export function encodeExecuteUserOpMemo({
 // passes it as the `_data` argument to AssetManagerFXRP.handleMintedFAssets, and
 // the on-chain facet verifies that keccak256(_data) matches the hash before executing.
 export function encodeHashInstructionMemo({
-  calls,
+  customInstruction,
   walletId,
   executorFeeUBA,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   walletId: number;
   executorFeeUBA: bigint;
   sender: Address;
   nonce: bigint;
 }): { memoData: `0x${string}`; data: `0x${string}` } {
-  const data = encodePackedUserOpData({ calls, sender, nonce });
+  const data = encodePackedUserOpData({ customInstruction, sender, nonce });
   const memoData = new UserOpCustomInstruction({
     walletId,
     executorFeeUBA,
@@ -269,20 +269,20 @@ export function encodeHashInstructionMemo({
 
 export async function sendMemoFieldInstruction({
   label,
-  calls,
+  customInstruction,
   amountXrp,
   personalAccount,
   xrplClient,
   xrplWallet,
 }: {
   label: string;
-  calls: Call[];
+  customInstruction: Call[];
   amountXrp: number;
   personalAccount: Address;
   xrplClient: Client;
   xrplWallet: Wallet;
 }) {
-  console.log(`[${label}] calls:`, calls, "\n");
+  console.log(`[${label}] customInstruction:`, customInstruction, "\n");
 
   const [nonce, coreVaultXrplAddress] = await Promise.all([
     getNonce(personalAccount),
@@ -291,7 +291,7 @@ export async function sendMemoFieldInstruction({
   console.log(`[${label}] current nonce:`, nonce, "\n");
 
   const memoData = encodeExecuteUserOpMemo({
-    calls,
+    customInstruction,
     walletId: 0,
     executorFeeUBA: 0n,
     sender: personalAccount,
@@ -338,20 +338,20 @@ export type HashInstructionUserSide = {
  */
 export async function sendHashInstruction({
   label,
-  calls,
+  customInstruction,
   amountXrp,
   personalAccount,
   xrplClient,
   xrplWallet,
 }: {
   label: string;
-  calls: Call[];
+  customInstruction: Call[];
   amountXrp: number;
   personalAccount: Address;
   xrplClient: Client;
   xrplWallet: Wallet;
 }): Promise<HashInstructionUserSide> {
-  console.log(`[${label}] calls:`, calls, "\n");
+  console.log(`[${label}] customInstruction:`, customInstruction, "\n");
 
   const [nonce, coreVaultXrplAddress] = await Promise.all([
     getNonce(personalAccount),
@@ -360,13 +360,13 @@ export async function sendHashInstruction({
   console.log(`[${label}] current nonce:`, nonce, "\n");
 
   const { memoData, data } = encodeHashInstructionMemo({
-    calls,
+    customInstruction,
     walletId: 0,
     executorFeeUBA: 0n,
     sender: personalAccount,
     nonce,
   });
-  const totalCallValue = calls.reduce((acc, call) => acc + call.value, 0n);
+  const totalCallValue = customInstruction.reduce((acc, call) => acc + call.value, 0n);
   console.log(`[${label}] userOpHash:`, keccak256(data), "\n");
   console.log(`[${label}] _data (${(data.length - 2) / 2} bytes):`, data, "\n");
   console.log(`[${label}] total call.value (native value to attach on executor tx):`, totalCallValue, "\n");

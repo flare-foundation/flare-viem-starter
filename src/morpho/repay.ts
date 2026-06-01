@@ -43,9 +43,9 @@ async function main() {
   // Morpho Blue reverts when both assets and shares are zero, and when
   // withdrawCollateral is called with assets=0. Skip either call if its side
   // of the position is already empty.
-  const calls: Call[] = [];
+  const customInstruction: Call[] = [];
   if (borrowShares > 0n) {
-    calls.push({
+    customInstruction.push({
       target: MORPHO_BLUE_ADDRESS,
       value: 0n,
       data: encodeFunctionData({
@@ -56,7 +56,7 @@ async function main() {
     });
   }
   if (collateral > 0n) {
-    calls.push({
+    customInstruction.push({
       target: MORPHO_BLUE_ADDRESS,
       value: 0n,
       data: encodeFunctionData({
@@ -70,7 +70,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "repay-and-withdraw",
-    calls,
+    customInstruction,
     amountXrp: memoOnlyAmountXrp,
     personalAccount,
     xrplClient,
