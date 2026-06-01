@@ -1,21 +1,11 @@
 import { encodeAbiParameters, formatUnits, pad, zeroAddress, type Address } from "viem";
 import { Options } from "@layerzerolabs/lz-v2-utilities";
-import { EndpointId } from "@layerzerolabs/lz-definitions";
 import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
 import { account, sepoliaPublicClient, sepoliaWalletClient, publicClient } from "../utils/client";
 import { abi as fxrpOftAbi } from "../abis/FXRPOFT";
 import { calculateAmountToSend } from "../utils/fassets";
+import { config } from "./config";
 import type { SendParam } from "./types";
-
-const CONFIG = {
-  SEPOLIA_FXRP_OFT: process.env.SEPOLIA_FXRP_OFT as Address | undefined,
-  COSTON2_COMPOSER: (process.env.COSTON2_COMPOSER ?? "0xa10569DFb38FE7Be211aCe4E4A566Cea387023b0") as Address,
-  COSTON2_EID: EndpointId.FLARE_V2_TESTNET,
-  EXECUTOR_GAS: 1_000_000,
-  COMPOSE_GAS: 1_000_000,
-  SEND_LOTS: process.env.SEND_LOTS ?? "1",
-  XRP_ADDRESS: process.env.XRP_ADDRESS ?? "rpHuw4bKSjonKRrKKVYUZYYVedg1jyPrmp",
-} as const;
 
 const REDEMPTION_TIMEOUT_MS = 5 * 60 * 1000;
 const REDEMPTION_POLL_INTERVAL_MS = 10_000;
@@ -52,15 +42,15 @@ function encodeComposeMessage(redeemer: Address, underlyingAddress: string): `0x
 
 function buildComposeOptions(): `0x${string}` {
   return Options.newOptions()
-    .addExecutorLzReceiveOption(CONFIG.EXECUTOR_GAS, 0)
-    .addExecutorComposeOption(0, CONFIG.COMPOSE_GAS, 0)
+    .addExecutorLzReceiveOption(config.REDEEM_EXECUTOR_GAS, 0)
+    .addExecutorComposeOption(0, config.COMPOSE_GAS, 0)
     .toHex() as `0x${string}`;
 }
 
 function buildSendParam(amountToSend: bigint, composeMsg: `0x${string}`, extraOptions: `0x${string}`): SendParam {
   return {
-    dstEid: CONFIG.COSTON2_EID,
-    to: pad(CONFIG.COSTON2_COMPOSER, { size: 32 }),
+    dstEid: config.COSTON2_EID,
+    to: pad(config.COSTON2_COMPOSER, { size: 32 }),
     amountLD: amountToSend,
     minAmountLD: amountToSend,
     extraOptions,
@@ -139,7 +129,7 @@ async function waitForFAssetRedeemedOnCoston2(redeemer: Address, fromBlock: bigi
       const chunkEnd = cursor + MAX_BLOCK_RANGE - 1n;
       const toBlock = chunkEnd > latest ? latest : chunkEnd;
       const logs = await publicClient.getContractEvents({
-        address: CONFIG.COSTON2_COMPOSER,
+        address: config.COSTON2_COMPOSER,
         abi: coston2.ifAssetRedeemComposerAbi,
         eventName: "FAssetRedeemed",
         args: { redeemer },
@@ -158,14 +148,17 @@ async function waitForFAssetRedeemedOnCoston2(redeemer: Address, fromBlock: bigi
 }
 
 async function main() {
-  if (!CONFIG.SEPOLIA_FXRP_OFT) {
+  const sendLots = process.env.SEND_LOTS ?? "1";
+  const xrpAddress = process.env.XRP_ADDRESS ?? "rpHuw4bKSjonKRrKKVYUZYYVedg1jyPrmp";
+
+  if (!config.SEPOLIA_FXRP_OFT) {
     throw new Error("SEPOLIA_FXRP_OFT env var is required (address of the FXRP OFT on Sepolia)");
   }
-  const oftAddress = CONFIG.SEPOLIA_FXRP_OFT;
+  const oftAddress = config.SEPOLIA_FXRP_OFT;
 
   const signerAddress = account.address;
   console.log("Using account:", signerAddress);
-  console.log("Composer configured:", CONFIG.COSTON2_COMPOSER);
+  console.log("Composer configured:", config.COSTON2_COMPOSER);
   console.log("Connecting to FXRP OFT on Sepolia:", oftAddress);
 
   const [decimals, amountToSend, startBlock] = await Promise.all([
@@ -174,17 +167,17 @@ async function main() {
       abi: fxrpOftAbi,
       functionName: "decimals",
     }),
-    calculateAmountToSend(BigInt(CONFIG.SEND_LOTS)),
+    calculateAmountToSend(BigInt(sendLots)),
     publicClient.getBlockNumber(),
   ]);
   console.log("Token decimals:", decimals);
 
   console.log("\nRedemption Parameters:");
   console.log("Amount:", amountToSend.toString(), "FXRP base units");
-  console.log("XRP Address:", CONFIG.XRP_ADDRESS);
+  console.log("XRP Address:", xrpAddress);
   console.log("Redeemer:", signerAddress);
 
-  const composeMsg = encodeComposeMessage(signerAddress, CONFIG.XRP_ADDRESS);
+  const composeMsg = encodeComposeMessage(signerAddress, xrpAddress);
   const extraOptions = buildComposeOptions();
   const sendParam = buildSendParam(amountToSend, composeMsg, extraOptions);
 
@@ -193,9 +186,9 @@ async function main() {
   const { nativeFee, lzTokenFee } = await quoteFee(oftAddress, sendParam);
 
   console.log("\nSending", formatUnits(amountToSend, decimals), "FXRP to Coston2 with auto-redeem...");
-  console.log("Target composer:", CONFIG.COSTON2_COMPOSER);
+  console.log("Target composer:", config.COSTON2_COMPOSER);
 
-  await executeSendAndRedeem(oftAddress, sendParam, nativeFee, lzTokenFee, signerAddress, CONFIG.XRP_ADDRESS);
+  await executeSendAndRedeem(oftAddress, sendParam, nativeFee, lzTokenFee, signerAddress, xrpAddress);
 
   const redemptionEvent = await waitForFAssetRedeemedOnCoston2(signerAddress, startBlock);
   console.log("\nFAssetRedeemed event observed on Coston2:");
