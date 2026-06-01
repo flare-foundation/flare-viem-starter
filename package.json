@@ -13,8 +13,8 @@
     "xrpl"
   ],
   "homepage": "",
-  "repository": { },
-  "bugs": { },
+  "repository": {},
+  "bugs": {},
   "files": [
     "CHANGELOG.md",
     "LICENSE",

@@ -1,9 +1,22 @@
-import { encodeAbiParameters, encodeFunctionData, formatUnits, keccak256, maxUint256, parseAbi, type Address } from "viem";
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  formatUnits,
+  keccak256,
+  maxUint256,
+  parseAbi,
+  type Address,
+} from "viem";
 import { Client, Wallet } from "xrpl";
 import { abi as ERC20Abi } from "../abis/ERC20";
 import { abi as MorphoBlueAbi } from "../abis/MorphoBlue";
 import { account, publicClient, walletClient } from "../utils/client";
-import { sendHashInstruction, sendMemoFieldInstruction, type Call, type HashInstructionUserSide } from "../utils/smart-accounts";
+import {
+  sendHashInstruction,
+  sendMemoFieldInstruction,
+  type Call,
+  type HashInstructionUserSide,
+} from "../utils/smart-accounts";
 
 // Coston2 Morpho Blue test stack (mock tokens, mock oracle, mock IRM).
 export const MORPHO_BLUE_ADDRESS = "0x8aE0b3CE90F16E88063516f2d88C8ac2ab552d95" as Address;

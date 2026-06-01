@@ -415,9 +415,9 @@ export async function executeDirectMintingWithData({
 }): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }> {
   const tag = label ? `[${label}] ` : "";
   // XRPL hashes are 64 hex chars without 0x; the FDC verifier wants a 32-byte hex string.
-  const transactionId = (xrplTransactionHash.startsWith("0x")
-    ? xrplTransactionHash
-    : `0x${xrplTransactionHash}`).toLowerCase() as `0x${string}`;
+  const transactionId = (
+    xrplTransactionHash.startsWith("0x") ? xrplTransactionHash : `0x${xrplTransactionHash}`
+  ).toLowerCase() as `0x${string}`;
 
   // The FDC XRPPayment attestation type rejects requests whose XRPL transaction
   // isn't yet buried under `XRPL_FDC_CONFIRMATIONS` validated ledgers (3 on
