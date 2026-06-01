@@ -201,7 +201,7 @@ async function logBalances(personalAccountAddress: Address, recipientAddress: Ad
 async function main() {
   const collateralReservationData = {
     walletId: 0,
-    value: 1,
+    value: 1n,
     agentVaultId: 1,
   };
 
@@ -238,7 +238,7 @@ async function main() {
 
   const transferData = {
     walletId: 0,
-    value: 10 * 10 ** decimals,
+    value: 10n * 10n ** BigInt(decimals),
     recipientAddress: recipientAddress.slice(2),
   };
   const transferInstruction = new FXRPTransferInstruction(transferData);

@@ -197,7 +197,7 @@ async function logBalances(personalAccountAddress: Address) {
 async function main() {
   const collateralReservationAndDepositData = {
     walletId: 0,
-    value: 1,
+    value: 1n,
     agentVaultId: 1,
     vaultId: 2,
   };

@@ -1,14 +1,13 @@
 import {
-  concatHex,
   encodeAbiParameters,
   encodeFunctionData,
   fromHex,
   keccak256,
   parseEventLogs,
-  toHex,
   type Address,
   type TransactionReceipt,
 } from "viem";
+import { MemoFieldUserOpCustomInstruction, UserOpCustomInstruction } from "@flarenetwork/smart-accounts-encoder";
 import { Client, dropsToXrp, Wallet } from "xrpl";
 import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
 import { account, publicClient, walletClient } from "./client";
@@ -222,11 +221,9 @@ function encodePackedUserOpData({
   );
 }
 
-// 10-byte instruction header: opcode (1B) | walletId (1B) | executorFee (8B, big-endian).
-function buildInstructionHeader(opcode: "0xff" | "0xfe", walletId: number, executorFeeUBA: bigint): `0x${string}` {
-  return concatHex([opcode, toHex(walletId, { size: 1 }), toHex(executorFeeUBA, { size: 8 })]);
-}
-
+// Opcode 0xFF: the full ABI-encoded PackedUserOperation rides inside the memo,
+// after the 10-byte header. The encoder owns the byte layout
+// [0xFF | walletId(1B) | executorFeeUBA(8B) | packedUserOperation].
 export function encodeExecuteUserOpMemo({
   calls,
   walletId,
@@ -240,14 +237,14 @@ export function encodeExecuteUserOpMemo({
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
-  const encodedUserOp = encodePackedUserOpData({ calls, sender, nonce });
-  return concatHex([buildInstructionHeader("0xff", walletId, executorFeeUBA), encodedUserOp]);
+  const packedUserOperation = encodePackedUserOpData({ calls, sender, nonce });
+  return new MemoFieldUserOpCustomInstruction({ walletId, executorFeeUBA, packedUserOperation }).encode();
 }
 
-// The 32-byte hash is appended after the 10-byte header (42 bytes total). The full
-// PackedUserOperation lives in `data`; the executor passes it as the `_data` argument
-// to AssetManagerFXRP.handleMintedFAssets, and the on-chain facet verifies that
-// keccak256(_data) matches the hash before executing.
+// Opcode 0xFE: the memo carries only the 32-byte hash after the 10-byte header
+// (42 bytes total). The full PackedUserOperation lives in `data`; the executor
+// passes it as the `_data` argument to AssetManagerFXRP.handleMintedFAssets, and
+// the on-chain facet verifies that keccak256(_data) matches the hash before executing.
 export function encodeHashInstructionMemo({
   calls,
   walletId,
@@ -262,7 +259,11 @@ export function encodeHashInstructionMemo({
   nonce: bigint;
 }): { memoData: `0x${string}`; data: `0x${string}` } {
   const data = encodePackedUserOpData({ calls, sender, nonce });
-  const memoData = concatHex([buildInstructionHeader("0xfe", walletId, executorFeeUBA), keccak256(data)]);
+  const memoData = new UserOpCustomInstruction({
+    walletId,
+    executorFeeUBA,
+    userOperationHash: keccak256(data),
+  }).encode();
   return { memoData, data };
 }
 
