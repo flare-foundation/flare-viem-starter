@@ -1,9 +1,22 @@
-import { encodeAbiParameters, encodeFunctionData, formatUnits, keccak256, maxUint256, parseAbi, type Address } from "viem";
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  formatUnits,
+  keccak256,
+  maxUint256,
+  parseAbi,
+  type Address,
+} from "viem";
 import { Client, Wallet } from "xrpl";
 import { abi as ERC20Abi } from "../abis/ERC20";
 import { abi as MorphoBlueAbi } from "../abis/MorphoBlue";
 import { account, publicClient, walletClient } from "../utils/client";
-import { sendHashInstruction, sendMemoFieldInstruction, type Call, type HashInstructionUserSide } from "../utils/smart-accounts";
+import {
+  sendHashInstruction,
+  sendMemoFieldInstruction,
+  type Call,
+  type HashInstructionUserSide,
+} from "../utils/smart-accounts";
 
 // Coston2 Morpho Blue test stack (mock tokens, mock oracle, mock IRM).
 export const MORPHO_BLUE_ADDRESS = "0x8aE0b3CE90F16E88063516f2d88C8ac2ab552d95" as Address;
@@ -151,21 +164,21 @@ export async function ensureShimSetupMemoField({
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-collateral",
-      calls: [buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
+      customInstruction: [buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (loanAllowance < APPROVAL_THRESHOLD) {
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "approve-loan",
-      calls: [buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
+      customInstruction: [buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_MARKET_SHIM_ADDRESS)],
     });
   }
   if (!morphoAuthorized) {
     await sendMemoFieldInstruction({
       ...sharedMemoFields,
       label: "set-authorization",
-      calls: [
+      customInstruction: [
         {
           target: MORPHO_BLUE_ADDRESS,
           value: 0n,
@@ -222,17 +235,17 @@ export async function buildMorphoSetupUserSide({
     return null;
   }
 
-  const calls: Call[] = [];
+  const customInstruction: Call[] = [];
   if (collateralAllowance < APPROVAL_THRESHOLD) {
-    calls.push(buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+    customInstruction.push(buildApproveCall(COLLATERAL_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
   }
   if (loanAllowance < APPROVAL_THRESHOLD) {
-    calls.push(buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
+    customInstruction.push(buildApproveCall(LOAN_TOKEN_ADDRESS, MORPHO_BLUE_ADDRESS));
   }
 
   return sendHashInstruction({
     label: "morpho-setup",
-    calls,
+    customInstruction,
     amountXrp,
     personalAccount,
     xrplClient,

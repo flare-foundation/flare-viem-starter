@@ -6,12 +6,7 @@ import { computeDirectMintingPaymentAmountXrp, getFxrpDecimals } from "../utils/
 import { getFxrpAddress } from "../utils/flare-contract-registry";
 import { abi as fxrpLzBridgeShimAbi } from "../abis/FxrpLzBridgeShim";
 import { abi as fxrpOftAbi } from "../abis/FXRPOFT";
-
-const CONFIG = {
-  FXRP_LZ_BRIDGE_SHIM: (process.env.FXRP_LZ_BRIDGE_SHIM ?? "0x525CCe1C6d053B0e7f41A2011B536aA992200Be0") as Address,
-  SEPOLIA_FXRP_OFT: process.env.SEPOLIA_FXRP_OFT as Address | undefined,
-  FXRP_MINT_AMOUNT_XRP: 10,
-} as const;
+import { config } from "./config";
 
 const SEPOLIA_ARRIVAL_TIMEOUT_MS = 10 * 60 * 1000;
 const SEPOLIA_ARRIVAL_POLL_INTERVAL_MS = 10_000;
@@ -50,11 +45,13 @@ async function waitForOftReceivedOnSepolia({
 //   dstEid=40161 (SEPOLIA_V2_TESTNET)
 //   executorGas=200000
 async function main() {
-  if (!CONFIG.SEPOLIA_FXRP_OFT) {
+  const fxrpMintAmountXrp = 10;
+
+  if (!config.SEPOLIA_FXRP_OFT) {
     throw new Error("SEPOLIA_FXRP_OFT env var is required (address of the FXRP OFT on Sepolia)");
   }
-  const shim = CONFIG.FXRP_LZ_BRIDGE_SHIM;
-  const sepoliaOft = CONFIG.SEPOLIA_FXRP_OFT;
+  const shim = config.FXRP_LZ_BRIDGE_SHIM;
+  const sepoliaOft = config.SEPOLIA_FXRP_OFT;
 
   const xrplClient = new Client(process.env.XRPL_TESTNET_RPC_URL!);
   const xrplWallet = Wallet.fromSeed(process.env.XRPL_SEED!);
@@ -65,12 +62,12 @@ async function main() {
     getFxrpAddress(),
     getFxrpDecimals(),
     computeDirectMintingPaymentAmountXrp({
-      netMintAmountXrp: CONFIG.FXRP_MINT_AMOUNT_XRP,
+      netMintAmountXrp: fxrpMintAmountXrp,
     }),
     computeDirectMintingPaymentAmountXrp({ netMintAmountXrp: 0 }),
   ]);
 
-  const amountToBridge = BigInt(xrpToDrops(CONFIG.FXRP_MINT_AMOUNT_XRP));
+  const amountToBridge = BigInt(xrpToDrops(fxrpMintAmountXrp));
 
   const nativeFee = await publicClient.readContract({
     address: shim,
@@ -94,7 +91,7 @@ async function main() {
   // XRPL caps each memo at ~1024 bytes. Even with the thin shim calldata, a
   // combined approve+bridge UserOperation still overflows (~1098 bytes), so
   // split into two memo-field instructions.
-  const approveShimCalls: Call[] = [
+  const approveShimCustomInstruction: Call[] = [
     {
       target: fxrpAddress,
       value: 0n,
@@ -106,7 +103,7 @@ async function main() {
     },
   ];
 
-  const bridgeCalls: Call[] = [
+  const bridgeCustomInstruction: Call[] = [
     {
       target: shim,
       value: nativeFee,
@@ -120,7 +117,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "mint-and-approve-shim",
-    calls: approveShimCalls,
+    customInstruction: approveShimCustomInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,
@@ -131,7 +128,7 @@ async function main() {
 
   const bridgeEvent = await sendMemoFieldInstruction({
     label: "bridge",
-    calls: bridgeCalls,
+    customInstruction: bridgeCustomInstruction,
     amountXrp: memoOnlyAmountXrp,
     personalAccount,
     xrplClient,

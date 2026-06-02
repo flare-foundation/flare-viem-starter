@@ -10,11 +10,7 @@ import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
 // whose `data` field is the matching Response struct — extracting the input
 // type gives us a TypeScript shape that stays in sync with the on-chain ABI
 // automatically.
-export type Web2JsonProof = ContractFunctionArgs<
-  typeof coston2.iWeb2JsonVerificationAbi,
-  "view",
-  "verifyWeb2Json"
->[0];
+export type Web2JsonProof = ContractFunctionArgs<typeof coston2.iWeb2JsonVerificationAbi, "view", "verifyWeb2Json">[0];
 export type Web2JsonResponse = Web2JsonProof["data"];
 
 export type IXrpPaymentProof = ContractFunctionArgs<
@@ -32,9 +28,9 @@ const RETRY_ATTEMPTS = 10;
 // Pull the IWeb2Json.Response ABI tuple from the periphery package's
 // verifyWeb2Json fragment. The result is one decode-side cast we do once.
 const iWeb2JsonResponseAbiParam = (
-  coston2.iWeb2JsonVerificationAbi.find(
-    (f) => f.type === "function" && "name" in f && f.name === "verifyWeb2Json"
-  ) as { inputs: readonly { components?: readonly AbiParameter[] }[] } | undefined
+  coston2.iWeb2JsonVerificationAbi.find((f) => f.type === "function" && "name" in f && f.name === "verifyWeb2Json") as
+    | { inputs: readonly { components?: readonly AbiParameter[] }[] }
+    | undefined
 )?.inputs?.[0]?.components?.[1];
 
 function decodeWeb2JsonResponse(responseHex: `0x${string}`): Web2JsonResponse {
@@ -281,13 +277,10 @@ export async function prepareXrpPaymentRequest({
   sourceIdBase?: string;
 }): Promise<{ abiEncodedRequest: `0x${string}` }> {
   const verifierUrl = `${verifierBaseUrl.replace(/\/$/, "")}/verifier/xrp/XRPPayment/prepareRequest`;
-  const result = await prepareAttestationRequest(
-    verifierUrl,
-    apiKey,
-    FDC_ATTESTATION_TYPE_XRP_PAYMENT,
-    sourceIdBase,
-    { transactionId, proofOwner }
-  );
+  const result = await prepareAttestationRequest(verifierUrl, apiKey, FDC_ATTESTATION_TYPE_XRP_PAYMENT, sourceIdBase, {
+    transactionId,
+    proofOwner,
+  });
   return { abiEncodedRequest: result.abiEncodedRequest as `0x${string}` };
 }
 

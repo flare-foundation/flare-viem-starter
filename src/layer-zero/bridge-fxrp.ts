@@ -1,19 +1,11 @@
 import { erc20Abi, formatUnits, pad, type Address } from "viem";
 import { Options } from "@layerzerolabs/lz-v2-utilities";
-import { EndpointId } from "@layerzerolabs/lz-definitions";
 import { account, publicClient, walletClient } from "../utils/client";
 import { abi as fxrpOftAbi } from "../abis/FXRPOFT";
 import { calculateAmountToSend, getFxrpBalance, getFxrpDecimals } from "../utils/fassets";
 import { getFxrpAddress } from "../utils/flare-contract-registry";
+import { config } from "./config";
 import type { SendParam } from "./types";
-
-const CONFIG = {
-  COSTON2_OFT_ADAPTER: "0xCd3d2127935Ae82Af54Fc31cCD9D3440dbF46639" as Address,
-  COSTON2_COMPOSER: process.env.COSTON2_COMPOSER as Address | undefined,
-  SEPOLIA_EID: EndpointId.SEPOLIA_V2_TESTNET,
-  EXECUTOR_GAS: 200_000,
-  BRIDGE_LOTS: process.env.BRIDGE_LOTS ?? "1",
-} as const;
 
 async function approveSpender(fAssetAddress: Address, spender: Address, amount: bigint) {
   const { request } = await publicClient.simulateContract({
@@ -29,7 +21,7 @@ async function approveSpender(fAssetAddress: Address, spender: Address, amount: 
 
 async function approveTokens(fAssetAddress: Address, amountToBridge: bigint, decimals: number) {
   const underlyingToken = await publicClient.readContract({
-    address: CONFIG.COSTON2_OFT_ADAPTER,
+    address: config.COSTON2_OFT_ADAPTER,
     abi: fxrpOftAbi,
     functionName: "token",
   });
@@ -37,23 +29,23 @@ async function approveTokens(fAssetAddress: Address, amountToBridge: bigint, dec
   console.log("Expected token:", fAssetAddress);
   console.log("Match:", underlyingToken.toLowerCase() === fAssetAddress.toLowerCase());
 
-  console.log("\nApproving FTestXRP for OFT Adapter:", CONFIG.COSTON2_OFT_ADAPTER);
+  console.log("\nApproving FTestXRP for OFT Adapter:", config.COSTON2_OFT_ADAPTER);
   console.log("Amount:", formatUnits(amountToBridge, decimals), "FXRP");
-  await approveSpender(fAssetAddress, CONFIG.COSTON2_OFT_ADAPTER, amountToBridge);
+  await approveSpender(fAssetAddress, config.COSTON2_OFT_ADAPTER, amountToBridge);
   console.log("OFT Adapter approved");
 
-  if (CONFIG.COSTON2_COMPOSER) {
-    console.log("\nApproving FTestXRP for Composer:", CONFIG.COSTON2_COMPOSER);
-    await approveSpender(fAssetAddress, CONFIG.COSTON2_COMPOSER, amountToBridge);
+  if (config.COSTON2_COMPOSER) {
+    console.log("\nApproving FTestXRP for Composer:", config.COSTON2_COMPOSER);
+    await approveSpender(fAssetAddress, config.COSTON2_COMPOSER, amountToBridge);
     console.log("Composer approved");
   }
 }
 
 function buildSendParam(recipient: Address, amountToBridge: bigint): SendParam {
-  const options = Options.newOptions().addExecutorLzReceiveOption(CONFIG.EXECUTOR_GAS, 0);
+  const options = Options.newOptions().addExecutorLzReceiveOption(config.EXECUTOR_GAS, 0);
 
   return {
-    dstEid: CONFIG.SEPOLIA_EID,
+    dstEid: config.SEPOLIA_EID,
     to: pad(recipient, { size: 32 }),
     amountLD: amountToBridge,
     minAmountLD: amountToBridge,
@@ -65,7 +57,7 @@ function buildSendParam(recipient: Address, amountToBridge: bigint): SendParam {
 
 async function quoteFee(sendParam: SendParam) {
   const { nativeFee } = await publicClient.readContract({
-    address: CONFIG.COSTON2_OFT_ADAPTER,
+    address: config.COSTON2_OFT_ADAPTER,
     abi: fxrpOftAbi,
     functionName: "quoteSend",
     args: [sendParam, false],
@@ -79,7 +71,7 @@ async function executeBridge(sendParam: SendParam, nativeFee: bigint, signerAddr
 
   const { request } = await publicClient.simulateContract({
     account,
-    address: CONFIG.COSTON2_OFT_ADAPTER,
+    address: config.COSTON2_OFT_ADAPTER,
     abi: fxrpOftAbi,
     functionName: "send",
     args: [sendParam, { nativeFee, lzTokenFee: 0n }, signerAddress],
@@ -97,11 +89,12 @@ async function executeBridge(sendParam: SendParam, nativeFee: bigint, signerAddr
 }
 
 async function main() {
+  const bridgeLots = process.env.BRIDGE_LOTS ?? "1";
   const signerAddress = account.address;
   const [fAssetAddress, decimals, amountToBridge] = await Promise.all([
     getFxrpAddress(),
     getFxrpDecimals(),
-    calculateAmountToSend(BigInt(CONFIG.BRIDGE_LOTS)),
+    calculateAmountToSend(BigInt(bridgeLots)),
   ]);
 
   console.log("Using account:", signerAddress);

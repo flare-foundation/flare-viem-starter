@@ -49,7 +49,7 @@ async function main() {
   const chipsBefore = await readChips(personalAccount);
   console.log("Chips before:", formatFxrp(chipsBefore), "FXRP\n");
 
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: fxrpAddress,
       value: 0n,
@@ -73,7 +73,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "mint-approve-and-buy-chips",
-    calls,
+    customInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

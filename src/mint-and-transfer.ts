@@ -4,14 +4,9 @@ import { sendXrplPayment } from "./utils/xrpl";
 import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
 import { publicClient } from "./utils/client";
 import type { Address, Log } from "viem";
-import {
-  getInstructionFee,
-  getOperatorXrplAddresses,
-  getPersonalAccountAddress,
-  MASTER_ACCOUNT_CONTROLLER_ADDRESS,
-} from "./utils/smart-accounts";
+import { getInstructionFee, getOperatorXrplAddresses, getPersonalAccountAddress } from "./utils/smart-accounts";
 import type { CollateralReservedEventType, FxrpTransferredEventType } from "./utils/event-types";
-import { getContractAddressByName } from "./utils/flare-contract-registry";
+import { getContractAddressByName, getMasterAccountControllerAddress } from "./utils/flare-contract-registry";
 import { getFxrpBalance, getFxrpDecimals } from "./utils/fassets";
 
 const recipientAddress = "0x1cdacde0c68e0a508ae85279375070a88554871b";
@@ -161,8 +156,9 @@ async function transfer({
   let fXrpTransferredEvent: FxrpTransferredEventType | undefined;
   let fXrpTransferredEventFound = false;
 
+  const masterAccountControllerAddress = await getMasterAccountControllerAddress();
   const unwatchFxrpTransferred = publicClient.watchContractEvent({
-    address: MASTER_ACCOUNT_CONTROLLER_ADDRESS,
+    address: masterAccountControllerAddress,
     abi: coston2.iMasterAccountControllerAbi,
     eventName: "FXrpTransferred",
     onLogs: (logs) => {
@@ -201,7 +197,7 @@ async function logBalances(personalAccountAddress: Address, recipientAddress: Ad
 async function main() {
   const collateralReservationData = {
     walletId: 0,
-    value: 1,
+    value: 1n,
     agentVaultId: 1,
   };
 
@@ -238,7 +234,7 @@ async function main() {
 
   const transferData = {
     walletId: 0,
-    value: 10 * 10 ** decimals,
+    value: 10n * 10n ** BigInt(decimals),
     recipientAddress: recipientAddress.slice(2),
   };
   const transferInstruction = new FXRPTransferInstruction(transferData);

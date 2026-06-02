@@ -1,7 +1,6 @@
 import { encodeFunctionData, erc20Abi, formatUnits, pad, type Address } from "viem";
 import { Client, Wallet, xrpToDrops } from "xrpl";
 import { Options } from "@layerzerolabs/lz-v2-utilities";
-import { EndpointId } from "@layerzerolabs/lz-definitions";
 import { account, publicClient, sepoliaPublicClient } from "../utils/client";
 import {
   executeDirectMintingWithData,
@@ -13,19 +12,8 @@ import {
 import { computeDirectMintingPaymentAmountXrp, getFxrpDecimals } from "../utils/fassets";
 import { getFxrpAddress } from "../utils/flare-contract-registry";
 import { abi as fxrpOftAbi } from "../abis/FXRPOFT";
+import { config } from "./config";
 import type { SendParam } from "./types";
-
-// Coston2 OFT Adapter for the FXRP → Sepolia route. The adapter exposes the
-// LayerZero IOFT interface (send / quoteSend) directly, so the 0xFE flow can
-// drive it without a memo-cap shim.
-const OFT_ADAPTER_COSTON2: Address = "0xCd3d2127935Ae82Af54Fc31cCD9D3440dbF46639";
-const SEPOLIA_DST_EID = EndpointId.SEPOLIA_V2_TESTNET;
-const EXECUTOR_GAS = 200_000;
-
-const CONFIG = {
-  SEPOLIA_FXRP_OFT: process.env.SEPOLIA_FXRP_OFT as Address | undefined,
-  FXRP_MINT_AMOUNT_XRP: 10,
-} as const;
 
 const SEPOLIA_ARRIVAL_TIMEOUT_MS = 10 * 60 * 1000;
 const SEPOLIA_ARRIVAL_POLL_INTERVAL_MS = 10_000;
@@ -69,10 +57,12 @@ async function waitForOftReceivedOnSepolia({
 // → OFT Adapter. Unused native fee is refunded by the adapter to the personal
 // account (the refund address we pass to `send`).
 async function main() {
-  if (!CONFIG.SEPOLIA_FXRP_OFT) {
+  const fxrpMintAmountXrp = 10;
+
+  if (!config.SEPOLIA_FXRP_OFT) {
     throw new Error("SEPOLIA_FXRP_OFT env var is required (address of the FXRP OFT on Sepolia)");
   }
-  const sepoliaOft = CONFIG.SEPOLIA_FXRP_OFT;
+  const sepoliaOft = config.SEPOLIA_FXRP_OFT;
 
   const xrplClient = new Client(process.env.XRPL_TESTNET_RPC_URL!);
   const xrplWallet = Wallet.fromSeed(process.env.XRPL_SEED!);
@@ -83,16 +73,14 @@ async function main() {
     getFxrpAddress(),
     getFxrpDecimals(),
     computeDirectMintingPaymentAmountXrp({
-      netMintAmountXrp: CONFIG.FXRP_MINT_AMOUNT_XRP,
+      netMintAmountXrp: fxrpMintAmountXrp,
     }),
   ]);
 
-  const amountToBridge = BigInt(xrpToDrops(CONFIG.FXRP_MINT_AMOUNT_XRP));
-  const extraOptions = Options.newOptions()
-    .addExecutorLzReceiveOption(EXECUTOR_GAS, 0)
-    .toHex() as `0x${string}`;
+  const amountToBridge = BigInt(xrpToDrops(fxrpMintAmountXrp));
+  const extraOptions = Options.newOptions().addExecutorLzReceiveOption(config.EXECUTOR_GAS, 0).toHex() as `0x${string}`;
   const sendParam: SendParam = {
-    dstEid: SEPOLIA_DST_EID,
+    dstEid: config.SEPOLIA_EID,
     to: pad(recipient, { size: 32 }),
     amountLD: amountToBridge,
     minAmountLD: amountToBridge,
@@ -102,7 +90,7 @@ async function main() {
   };
 
   const messagingFee = await publicClient.readContract({
-    address: OFT_ADAPTER_COSTON2,
+    address: config.COSTON2_OFT_ADAPTER,
     abi: fxrpOftAbi,
     functionName: "quoteSend",
     args: [sendParam, false],
@@ -111,7 +99,7 @@ async function main() {
 
   console.log("Personal account:", personalAccount);
   console.log("FXRP token:", fxrpAddress);
-  console.log("OFT Adapter (Coston2):", OFT_ADAPTER_COSTON2);
+  console.log("OFT Adapter (Coston2):", config.COSTON2_OFT_ADAPTER);
 
   console.log("\nCross-chain mint details:");
   console.log("From (XRPL):", xrplWallet.address);
@@ -121,18 +109,18 @@ async function main() {
   console.log("XRPL payment amount (mint + fees):", paymentAmountXrp, "XRP");
   console.log("LayerZero native fee:", formatUnits(nativeFee, 18), "C2FLR");
 
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: fxrpAddress,
       value: 0n,
       data: encodeFunctionData({
         abi: erc20Abi,
         functionName: "approve",
-        args: [OFT_ADAPTER_COSTON2, amountToBridge],
+        args: [config.COSTON2_OFT_ADAPTER, amountToBridge],
       }),
     },
     {
-      target: OFT_ADAPTER_COSTON2,
+      target: config.COSTON2_OFT_ADAPTER,
       value: nativeFee,
       data: encodeFunctionData({
         abi: fxrpOftAbi,
@@ -149,7 +137,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "mint-approve-and-bridge",
-    calls,
+    customInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

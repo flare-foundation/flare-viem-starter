@@ -21,7 +21,7 @@ async function main() {
   ]);
   console.log("Personal account address:", personalAccount, "\n");
 
-  const redeemCalls: Call[] = [
+  const redeemCustomInstruction: Call[] = [
     {
       target: assetManagerFXRPAddress,
       value: 0n,
@@ -40,7 +40,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "redeem",
-    calls: redeemCalls,
+    customInstruction: redeemCustomInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

@@ -11,7 +11,7 @@ async function readBalances(personalAccount: Address) {
 }
 
 async function cashOut({ context, chipAmount }: { context: RouletteContext; chipAmount: bigint }) {
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: rouletteAddress,
       value: 0n,
@@ -24,7 +24,7 @@ async function cashOut({ context, chipAmount }: { context: RouletteContext; chip
   ];
   await sendMemoFieldInstruction({
     label: "cash-out",
-    calls,
+    customInstruction,
     amountXrp: context.memoOnlyAmountXrp,
     personalAccount: context.personalAccount,
     xrplClient: context.xrplClient,

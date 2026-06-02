@@ -30,7 +30,7 @@ async function main() {
   // XRPL caps each memo at ~1024 bytes. The `approve` and `initiateBridge`
   // encodings are large enough that no 2-call combination fits except
   // `[depositCollateral, takeLoan]`, so the 5 calls split into 4 batches.
-  const approveFxrpCalls: Call[] = [
+  const approveFxrpCustomInstruction: Call[] = [
     {
       target: FXRPAddress,
       value: BigInt(0),
@@ -41,7 +41,7 @@ async function main() {
       }),
     },
   ];
-  const approveUsdtCalls: Call[] = [
+  const approveUsdtCustomInstruction: Call[] = [
     {
       target: dummyUSDTAddress,
       value: BigInt(0),
@@ -52,7 +52,7 @@ async function main() {
       }),
     },
   ];
-  const depositAndBorrowCalls: Call[] = [
+  const depositAndBorrowCustomInstruction: Call[] = [
     {
       target: loanContractAddress,
       value: BigInt(0),
@@ -72,7 +72,7 @@ async function main() {
       }),
     },
   ];
-  const bridgeCalls: Call[] = [
+  const bridgeCustomInstruction: Call[] = [
     {
       target: bridgeAddress,
       value: BigInt(0),
@@ -95,7 +95,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "approve-fxrp",
-    calls: approveFxrpCalls,
+    customInstruction: approveFxrpCustomInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,
@@ -104,7 +104,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "deposit-and-borrow",
-    calls: depositAndBorrowCalls,
+    customInstruction: depositAndBorrowCustomInstruction,
     amountXrp: memoOnlyAmountXrp,
     personalAccount,
     xrplClient,
@@ -113,7 +113,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "approve-usdt",
-    calls: approveUsdtCalls,
+    customInstruction: approveUsdtCustomInstruction,
     amountXrp: memoOnlyAmountXrp,
     personalAccount,
     xrplClient,
@@ -122,7 +122,7 @@ async function main() {
 
   await sendMemoFieldInstruction({
     label: "bridge",
-    calls: bridgeCalls,
+    customInstruction: bridgeCustomInstruction,
     amountXrp: memoOnlyAmountXrp,
     personalAccount,
     xrplClient,

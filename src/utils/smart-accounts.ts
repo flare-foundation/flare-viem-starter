@@ -1,14 +1,13 @@
 import {
-  concatHex,
   encodeAbiParameters,
   encodeFunctionData,
   fromHex,
   keccak256,
   parseEventLogs,
-  toHex,
   type Address,
   type TransactionReceipt,
 } from "viem";
+import { MemoFieldUserOpCustomInstruction, UserOpCustomInstruction } from "@flarenetwork/smart-accounts-encoder";
 import { Client, dropsToXrp, Wallet } from "xrpl";
 import { coston2 } from "@flarenetwork/flare-wagmi-periphery-package";
 import { account, publicClient, walletClient } from "./client";
@@ -190,18 +189,18 @@ export async function getMintingTagManagerAddress(): Promise<Address> {
 }
 
 function encodePackedUserOpData({
-  calls,
+  customInstruction,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
   const callData = encodeFunctionData({
     abi: coston2.iPersonalAccountAbi,
     functionName: "executeUserOp",
-    args: [calls],
+    args: [customInstruction],
   });
 
   return encodeAbiParameters(
@@ -222,66 +221,68 @@ function encodePackedUserOpData({
   );
 }
 
-// 10-byte instruction header: opcode (1B) | walletId (1B) | executorFee (8B, big-endian).
-function buildInstructionHeader(opcode: "0xff" | "0xfe", walletId: number, executorFeeUBA: bigint): `0x${string}` {
-  return concatHex([opcode, toHex(walletId, { size: 1 }), toHex(executorFeeUBA, { size: 8 })]);
-}
-
+// Opcode 0xFF: the full ABI-encoded PackedUserOperation rides inside the memo,
+// after the 10-byte header. The encoder owns the byte layout
+// [0xFF | walletId(1B) | executorFeeUBA(8B) | packedUserOperation].
 export function encodeExecuteUserOpMemo({
-  calls,
+  customInstruction,
   walletId,
   executorFeeUBA,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   walletId: number;
   executorFeeUBA: bigint;
   sender: Address;
   nonce: bigint;
 }): `0x${string}` {
-  const encodedUserOp = encodePackedUserOpData({ calls, sender, nonce });
-  return concatHex([buildInstructionHeader("0xff", walletId, executorFeeUBA), encodedUserOp]);
+  const packedUserOperation = encodePackedUserOpData({ customInstruction, sender, nonce });
+  return new MemoFieldUserOpCustomInstruction({ walletId, executorFeeUBA, packedUserOperation }).encode();
 }
 
-// The 32-byte hash is appended after the 10-byte header (42 bytes total). The full
-// PackedUserOperation lives in `data`; the executor passes it as the `_data` argument
-// to AssetManagerFXRP.handleMintedFAssets, and the on-chain facet verifies that
-// keccak256(_data) matches the hash before executing.
+// Opcode 0xFE: the memo carries only the 32-byte hash after the 10-byte header
+// (42 bytes total). The full PackedUserOperation lives in `data`; the executor
+// passes it as the `_data` argument to AssetManagerFXRP.handleMintedFAssets, and
+// the on-chain facet verifies that keccak256(_data) matches the hash before executing.
 export function encodeHashInstructionMemo({
-  calls,
+  customInstruction,
   walletId,
   executorFeeUBA,
   sender,
   nonce,
 }: {
-  calls: Call[];
+  customInstruction: Call[];
   walletId: number;
   executorFeeUBA: bigint;
   sender: Address;
   nonce: bigint;
 }): { memoData: `0x${string}`; data: `0x${string}` } {
-  const data = encodePackedUserOpData({ calls, sender, nonce });
-  const memoData = concatHex([buildInstructionHeader("0xfe", walletId, executorFeeUBA), keccak256(data)]);
+  const data = encodePackedUserOpData({ customInstruction, sender, nonce });
+  const memoData = new UserOpCustomInstruction({
+    walletId,
+    executorFeeUBA,
+    userOperationHash: keccak256(data),
+  }).encode();
   return { memoData, data };
 }
 
 export async function sendMemoFieldInstruction({
   label,
-  calls,
+  customInstruction,
   amountXrp,
   personalAccount,
   xrplClient,
   xrplWallet,
 }: {
   label: string;
-  calls: Call[];
+  customInstruction: Call[];
   amountXrp: number;
   personalAccount: Address;
   xrplClient: Client;
   xrplWallet: Wallet;
 }) {
-  console.log(`[${label}] calls:`, calls, "\n");
+  console.log(`[${label}] customInstruction:`, customInstruction, "\n");
 
   const [nonce, coreVaultXrplAddress] = await Promise.all([
     getNonce(personalAccount),
@@ -290,7 +291,7 @@ export async function sendMemoFieldInstruction({
   console.log(`[${label}] current nonce:`, nonce, "\n");
 
   const memoData = encodeExecuteUserOpMemo({
-    calls,
+    customInstruction,
     walletId: 0,
     executorFeeUBA: 0n,
     sender: personalAccount,
@@ -337,20 +338,20 @@ export type HashInstructionUserSide = {
  */
 export async function sendHashInstruction({
   label,
-  calls,
+  customInstruction,
   amountXrp,
   personalAccount,
   xrplClient,
   xrplWallet,
 }: {
   label: string;
-  calls: Call[];
+  customInstruction: Call[];
   amountXrp: number;
   personalAccount: Address;
   xrplClient: Client;
   xrplWallet: Wallet;
 }): Promise<HashInstructionUserSide> {
-  console.log(`[${label}] calls:`, calls, "\n");
+  console.log(`[${label}] customInstruction:`, customInstruction, "\n");
 
   const [nonce, coreVaultXrplAddress] = await Promise.all([
     getNonce(personalAccount),
@@ -359,13 +360,13 @@ export async function sendHashInstruction({
   console.log(`[${label}] current nonce:`, nonce, "\n");
 
   const { memoData, data } = encodeHashInstructionMemo({
-    calls,
+    customInstruction,
     walletId: 0,
     executorFeeUBA: 0n,
     sender: personalAccount,
     nonce,
   });
-  const totalCallValue = calls.reduce((acc, call) => acc + call.value, 0n);
+  const totalCallValue = customInstruction.reduce((acc, call) => acc + call.value, 0n);
   console.log(`[${label}] userOpHash:`, keccak256(data), "\n");
   console.log(`[${label}] _data (${(data.length - 2) / 2} bytes):`, data, "\n");
   console.log(`[${label}] total call.value (native value to attach on executor tx):`, totalCallValue, "\n");
@@ -414,9 +415,9 @@ export async function executeDirectMintingWithData({
 }): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }> {
   const tag = label ? `[${label}] ` : "";
   // XRPL hashes are 64 hex chars without 0x; the FDC verifier wants a 32-byte hex string.
-  const transactionId = (xrplTransactionHash.startsWith("0x")
-    ? xrplTransactionHash
-    : `0x${xrplTransactionHash}`).toLowerCase() as `0x${string}`;
+  const transactionId = (
+    xrplTransactionHash.startsWith("0x") ? xrplTransactionHash : `0x${xrplTransactionHash}`
+  ).toLowerCase() as `0x${string}`;
 
   // The FDC XRPPayment attestation type rejects requests whose XRPL transaction
   // isn't yet buried under `XRPL_FDC_CONFIRMATIONS` validated ledgers (3 on

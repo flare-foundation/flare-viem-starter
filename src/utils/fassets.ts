@@ -59,9 +59,7 @@ export async function getRedemptionQueueTotalValueUBA(assetManagerAddress?: Addr
     firstRedemptionTicketId = nextRedemptionTicketId;
   }
 
-  throw new Error(
-    `Redemption queue pagination exceeded ${MAX_REDEMPTION_QUEUE_PAGES} pages.`
-  );
+  throw new Error(`Redemption queue pagination exceeded ${MAX_REDEMPTION_QUEUE_PAGES} pages.`);
 }
 
 export async function validateRedeemAmountUBA(

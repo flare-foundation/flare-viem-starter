@@ -38,7 +38,7 @@ async function main() {
   const amountToDeposit = 100;
   const amountToBorrow = 10n;
 
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: FXRPAddress,
       value: BigInt(0),
@@ -96,7 +96,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "deposit-borrow-bridge",
-    calls,
+    customInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

@@ -35,7 +35,7 @@ async function main() {
   console.log("Repaying full position, borrowShares:", borrowShares.toString(), "\n");
   await sendMemoFieldInstruction({
     label: "repay-and-withdraw",
-    calls: [
+    customInstruction: [
       {
         target: MORPHO_MARKET_SHIM_ADDRESS,
         value: 0n,

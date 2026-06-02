@@ -34,7 +34,7 @@ async function main() {
   console.log("Personal account address:", personalAccount, "\n");
   console.log("Payment amount (XRP, net mint + fees):", paymentAmountXrp, "\n");
 
-  const redeemCalls: Call[] = [
+  const redeemCustomInstruction: Call[] = [
     {
       target: assetManagerFXRPAddress,
       value: 0n,
@@ -49,7 +49,7 @@ async function main() {
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "redeem",
-    calls: redeemCalls,
+    customInstruction: redeemCustomInstruction,
     amountXrp: paymentAmountXrp,
     personalAccount,
     xrplClient,

@@ -36,7 +36,7 @@ async function placeBet({
   bet: { kind: BetKindValue; selection: number };
   betAmount: bigint;
 }): Promise<{ betId: bigint; placedAt: bigint }> {
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: rouletteAddress,
       value: 0n,
@@ -51,7 +51,7 @@ async function placeBet({
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "place-bet",
-    calls,
+    customInstruction,
     amountXrp: context.memoOnlyAmountXrp,
     personalAccount: context.personalAccount,
     xrplClient: context.xrplClient,
@@ -114,7 +114,7 @@ async function waitForNextSecureRandom(placedAt: bigint) {
 }
 
 async function settleBet({ context, betId }: { context: RouletteContext; betId: bigint }) {
-  const calls: Call[] = [
+  const customInstruction: Call[] = [
     {
       target: rouletteAddress,
       value: 0n,
@@ -129,7 +129,7 @@ async function settleBet({ context, betId }: { context: RouletteContext; betId: 
   // --- 1. USER SIDE -------------------------------------------------------
   const userSide = await sendHashInstruction({
     label: "settle-bet",
-    calls,
+    customInstruction,
     amountXrp: context.memoOnlyAmountXrp,
     personalAccount: context.personalAccount,
     xrplClient: context.xrplClient,
