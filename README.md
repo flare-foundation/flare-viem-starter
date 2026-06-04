@@ -67,7 +67,7 @@ pnpm run script src/mint-and-transfer.ts
 src
 ├── abis/                                # Solidity ABIs exported as typed TypeScript objects
 ├── utils/                               # Shared helpers: clients, FDC, smart-account encoding, XRPL
-├── fassets/                             # FAssets direct minting, redemption, and rate-limit inspection
+├── fassets/                             # FAssets direct minting, tag transfer, redemption, and rate-limit inspection
 ├── flare-lending/                       # Dummy lending demo on coston2 (FXRP collateral, MPT loan, bridge)
 ├── layer-zero/                          # Cross-chain FXRP via the LayerZero OFT adapter
 ├── morpho/                              # Morpho Blue borrow / repay cycle through a personal account
@@ -198,6 +198,15 @@ Sends the XRPL payment with `destinationTag=tag` and waits for `DirectMintingExe
 - **Env:** `XRPL_TESTNET_RPC_URL`, `XRPL_SEED`, optional `MINTING_TAG`.
 - **Prereqs:** externally owned account funded with C2FLR for the tag reservation tx.
 - **Status:** standalone, but also acts as `setup` for `redeem-with-tag.ts` and `layer-zero/cross-chain-redeem-to-tag.ts` because it writes a reusable tag binding.
+
+#### `transfer-minting-tag.ts`
+
+Direct ERC-721 transfer of a reserved minting tag (`MintingTagManager.transferFrom`).
+Reads owner/recipient before transfer, validates caller ownership, performs transfer, then prints owner/recipient after transfer.
+
+- **Env:** standard wallet env via `PRIVATE_KEY`; set `MINTING_TAG` / `MINTING_TAG_RECIPIENT` constants in the script file.
+- **Prereqs:** tag already reserved and currently owned by the configured wallet (`PRIVATE_KEY`).
+- **Status:** standalone.
 
 #### `redeem-amount.ts`
 
