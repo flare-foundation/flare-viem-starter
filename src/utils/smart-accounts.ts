@@ -17,7 +17,6 @@ import { account, publicClient, walletClient } from "./client";
 import { sendXrplPayment, waitForXrplFinality, XRPL_FDC_CONFIRMATIONS } from "./xrpl";
 import { getAssetManagerFXRPAddress, getMasterAccountControllerAddress } from "./flare-contract-registry";
 import { abi as iMemoInstructionsFacetAbi } from "../abis/IMemoInstructionsFacet";
-import { abi as iDirectMintingExtAbi } from "../abis/IDirectMintingExt";
 import {
   prepareXrpPaymentRequest,
   retrieveXrpPaymentProofWithRetry,
@@ -450,7 +449,7 @@ export async function findDirectMintingReceiptForTransactionId(
     const fromBlock = toBlock > COSTON2_MAX_LOG_BLOCK_RANGE ? toBlock - COSTON2_MAX_LOG_BLOCK_RANGE : earliest;
     const logs = await publicClient.getContractEvents({
       address: assetManagerFxrpAddress,
-      abi: iDirectMintingExtAbi,
+      abi: coston2.iDirectMintingAbi,
       eventName: "DirectMintingExecutedToSmartAccount",
       args: { transactionId: normalized },
       fromBlock,
@@ -640,7 +639,7 @@ export async function executeDirectMintingWithData({
     const hash = await walletClient.writeContract({
       account,
       address: assetManagerFxrpAddress,
-      abi: iDirectMintingExtAbi,
+      abi: coston2.iDirectMintingAbi,
       functionName: "executeDirectMintingWithData",
       args: [proof, data],
       value,
@@ -748,7 +747,7 @@ export function findUserOperationExecuted(
 /** Throws when the executor receipt contains `DirectMintingDelayed` (rate-limited mint). */
 export function assertNotDirectMintingDelayed(receipt: TransactionReceipt, label?: string): void {
   const logs = parseEventLogs({
-    abi: iDirectMintingExtAbi,
+    abi: coston2.iDirectMintingAbi,
     eventName: "DirectMintingDelayed",
     logs: receipt.logs,
   });
