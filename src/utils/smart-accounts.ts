@@ -54,6 +54,13 @@ export type IgnoreMemoSetEventType = Log & {
   };
 };
 
+export type NonceIncreasedEventType = Log & {
+  args: {
+    personalAccount: Address;
+    newNonce: bigint;
+  };
+};
+
 export type PersonalAccountDirectMintingExecutedEventType = Log & {
   args: {
     personalAccount: Address;
@@ -387,6 +394,83 @@ export async function sendSkipMemoInstruction({
   console.log(`[${label}] recovery XRPL transaction hash:`, xrplTransactionHash, "\n");
 
   return { xrplTransactionHash, targetTxId };
+}
+
+// Opcode 0xE1: fast-forward the personal account's memo-instruction nonce.
+// Layout matches the 42-byte header used by 0xE0:
+// [0xE1 | walletId(1B) | executorFeeUBA(8B) | newNonce(32B)].
+export function encodeFastForwardNonce({
+  newNonce,
+  walletId = 0,
+  executorFeeUBA = 0n,
+}: {
+  newNonce: bigint;
+  walletId?: number;
+  executorFeeUBA?: bigint;
+}): `0x${string}` {
+  const paddedNonce = padHex(toHex(newNonce), { size: 32 });
+  return concatHex(["0xE1", toHex(walletId, { size: 1 }), toHex(executorFeeUBA, { size: 8 }), paddedNonce]);
+}
+
+export function assertValidNonceIncrease(currentNonce: bigint, targetNewNonce: bigint): void {
+  if (targetNewNonce <= currentNonce) {
+    throw new Error(`newNonce ${targetNewNonce} must be > current nonce ${currentNonce}`);
+  }
+  if (targetNewNonce - currentNonce > 2n ** 32n - 1n) {
+    throw new Error(`nonce jump ${targetNewNonce - currentNonce} exceeds uint32.max`);
+  }
+}
+
+export type FastForwardNonceUserSide = {
+  xrplTransactionHash: string;
+  newNonce: bigint;
+};
+
+/**
+ * User side of the 0xE1 flow — send an XRPL Payment to the core vault carrying
+ * a fast-forward-nonce instruction that sets the memo nonce to `newNonce`.
+ */
+export async function sendFastForwardNonceInstruction({
+  label,
+  newNonce,
+  personalAccount: _personalAccount,
+  xrplClient,
+  xrplWallet,
+  netMintAmountXrp = 1,
+}: {
+  label: string;
+  newNonce: bigint;
+  personalAccount: Address;
+  xrplClient: Client;
+  xrplWallet: Wallet;
+  /** Net XRP to mint alongside the 0xE1 flag. Must be > 0 — fee-only payments revert on-chain. */
+  netMintAmountXrp?: number;
+}): Promise<FastForwardNonceUserSide> {
+  const memoData = encodeFastForwardNonce({ newNonce });
+  console.log(`[${label}] 0xE1 fast-forward nonce to:`, newNonce, "\n");
+  console.log(`[${label}] memo (${(memoData.length - 2) / 2} bytes):`, memoData, "\n");
+
+  const [coreVaultXrplAddress, amountXrp] = await Promise.all([
+    getDirectMintingPaymentAddress(),
+    computeDirectMintingPaymentAmountXrp({ netMintAmountXrp }),
+  ]);
+  console.log(
+    `[${label}] payment amount (XRP, net mint ${netMintAmountXrp} + fees):`,
+    amountXrp,
+    "\n"
+  );
+
+  const transaction = await sendXrplPayment({
+    destination: coreVaultXrplAddress,
+    amount: amountXrp,
+    memos: [{ Memo: { MemoData: memoData.slice(2) } }],
+    wallet: xrplWallet,
+    client: xrplClient,
+  });
+  const xrplTransactionHash = transaction.result.hash;
+  console.log(`[${label}] XRPL transaction hash:`, xrplTransactionHash, "\n");
+
+  return { xrplTransactionHash, newNonce };
 }
 
 async function fetchXrpPaymentProof({
@@ -788,6 +872,32 @@ export function findIgnoreMemoSet(
   throw new Error(
     `IgnoreMemoSet log not found on receipt ${receipt.transactionHash} ` +
       `for personalAccount=${personalAccount} targetTxId=${normalizedTarget}`
+  );
+}
+
+export function findNonceIncreased(
+  receipt: TransactionReceipt,
+  personalAccount: Address,
+  newNonce: bigint
+): NonceIncreasedEventType {
+  assertNotDirectMintingDelayed(receipt);
+  const logs = parseEventLogs({
+    abi: iMemoInstructionsFacetAbi,
+    eventName: "NonceIncreased",
+    logs: receipt.logs,
+  });
+  for (const log of logs) {
+    const typedLog = log as unknown as NonceIncreasedEventType;
+    if (
+      typedLog.args.personalAccount.toLowerCase() === personalAccount.toLowerCase() &&
+      typedLog.args.newNonce === newNonce
+    ) {
+      return typedLog;
+    }
+  }
+  throw new Error(
+    `NonceIncreased log not found on receipt ${receipt.transactionHash} ` +
+      `for personalAccount=${personalAccount} newNonce=${newNonce}`
   );
 }
 
