@@ -160,3 +160,58 @@ export function waitForDirectMintingExecuted({
     });
   });
 }
+
+function formatExecutionAllowedAt(secondsSinceEpoch: bigint): string {
+  const iso = new Date(Number(secondsSinceEpoch) * 1000).toISOString();
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const delta = Number(secondsSinceEpoch - now);
+  const relative = delta >= 0 ? `in ${delta}s` : `${-delta}s ago`;
+  return `${secondsSinceEpoch.toString()} (${iso}, ${relative})`;
+}
+
+export function waitForDirectMintingOutcome({
+  assetManagerAddress,
+  targetAddress,
+}: {
+  assetManagerAddress: Address;
+  targetAddress: Address;
+}): Promise<DirectMintingExecutedEventType> {
+  return new Promise((resolve) => {
+    const unwatchDelayed = publicClient.watchContractEvent({
+      address: assetManagerAddress,
+      abi: coston2.iDirectMintingAbi,
+      eventName: "DirectMintingDelayed",
+      onLogs: (logs) => {
+        for (const log of logs) {
+          const executionAllowedAt = log.args.executionAllowedAt;
+          if (executionAllowedAt === undefined) {
+            continue;
+          }
+          console.log(
+            "DirectMintingDelayed: executionAllowedAt",
+            formatExecutionAllowedAt(executionAllowedAt),
+            "\n",
+          );
+        }
+      },
+    });
+
+    const unwatchExecuted = publicClient.watchContractEvent({
+      address: assetManagerAddress,
+      abi: coston2.iDirectMintingAbi,
+      eventName: "DirectMintingExecuted",
+      onLogs: (logs) => {
+        for (const log of logs) {
+          const typedLog = log as DirectMintingExecutedEventType;
+          if (typedLog.args.targetAddress.toLowerCase() !== targetAddress.toLowerCase()) {
+            continue;
+          }
+          unwatchDelayed();
+          unwatchExecuted();
+          resolve(typedLog);
+          return;
+        }
+      },
+    });
+  });
+}
