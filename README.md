@@ -72,6 +72,7 @@ src
 ├── layer-zero/                          # Cross-chain FXRP via the LayerZero OFT adapter
 ├── morpho/                              # Morpho Blue borrow / repay cycle through a personal account
 ├── roulette/                            # Roulette demo: buy chips, place a bet, cash out
+├── usdt0/                               # USDT0 ERC-20 control: balance, transfer, SparkDEX swap
 ├── custom-instructions.ts               # Atomic multi-call demo against three dummy coston2 contracts
 ├── custom-instructions-memo-field.ts    # Same as above via the memo-field encoding
 ├── index.ts                             # (empty)
@@ -395,6 +396,38 @@ Early-exits if the chip balance is zero.
 - **Env:** `XRPL_TESTNET_RPC_URL`, `XRPL_SEED`.
 - **Prereqs:** the personal account holds nonzero chips on the Roulette contract.
 - **Status:** requires `fund-game.ts` (and typically `bet.ts` if you want post-bet settlement first).
+
+### `src/usdt0/`
+
+ERC-20 control of USDT0 from the personal account.
+Addresses, amounts, and the transfer recipient live in `config.ts`.
+Mutating scripts use fee-only 0xFE UserOps (no FXRP mint).
+
+#### `balance.ts`
+
+Read-only: prints the personal account's USDT0 `balanceOf` and `allowance` to the SparkDEX SwapRouter.
+
+- **Env:** `XRPL_SEED`.
+- **Prereqs:** none.
+- **Status:** standalone.
+
+#### `transfer.ts`
+
+Transfers `DEFAULT_AMOUNT_IN_UNITS` (1 USDT0) from the personal account to `DEFAULT_TRANSFER_RECIPIENT` via a single-call 0xFE UserOp.
+
+- **Env:** `XRPL_TESTNET_RPC_URL`, `XRPL_SEED`, `PRIVATE_KEY` (executor step).
+- **Prereqs:** faucet C2FLR to the personal account; faucet USDT0 to the same EVM address via the [Coston2 faucet](https://faucet.flare.network/coston2). The personal account must hold at least `DEFAULT_AMOUNT_IN_UNITS` before running.
+- **Status:** standalone.
+
+#### `swap-usdt0-to-fxrp.ts`
+
+Swaps USDT0 to FXRP from the personal account via SparkDEX's Uniswap V3 router.
+The XRPL payment carries only direct-minting fees (no FXRP mint); the 0xFE UserOp batches `USDT0.approve(router)` and `router.exactInputSingle(USDT0 → FXRP)` atomically.
+
+- **Env:** `XRPL_TESTNET_RPC_URL`, `XRPL_SEED`, `PRIVATE_KEY` (executor step).
+- **Prereqs:** faucet C2FLR to the personal account; faucet USDT0 to the same EVM address via the [Coston2 faucet](https://faucet.flare.network/coston2). The personal account must hold at least `DEFAULT_AMOUNT_IN_UNITS` (1 USDT0) before running.
+- **Status:** standalone.
+- **Reference:** [Swap USDT0 to FXRP](https://dev.flare.network/fxrp/token-interactions/usdt0-fxrp-swap)
 
 ## Resources
 

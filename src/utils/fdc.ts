@@ -148,6 +148,9 @@ export async function submitAttestationRequest(abiEncodedRequest: `0x${string}`)
 
   const roundId = Number((blockTimestamp - firstVotingRoundStartTs) / votingEpochDurationSeconds);
   console.log("FDC attestation submitted. Round id:", roundId);
+  console.log(
+    `FDC round explorer: https://coston2-systems-explorer.flare.network/voting-round/${roundId}?tab=fdc`
+  );
   return roundId;
 }
 
