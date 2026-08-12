@@ -1,8 +1,8 @@
-import { erc20Abi, formatUnits, pad, type Address } from "viem";
+import { erc20Abi, formatUnits, pad, parseUnits, type Address } from "viem";
 import { Options } from "@layerzerolabs/lz-v2-utilities";
 import { account, publicClient, walletClient } from "../utils/client";
 import { abi as fxrpOftAbi } from "../abis/FXRPOFT";
-import { calculateAmountToSend, getFxrpBalance, getFxrpDecimals } from "../utils/fassets";
+import { getFxrpBalance, getFxrpDecimals } from "../utils/fassets";
 import { getFxrpAddress } from "../utils/flare-contract-registry";
 import { config } from "./config";
 import type { SendParam } from "./types";
@@ -89,13 +89,10 @@ async function executeBridge(sendParam: SendParam, nativeFee: bigint, signerAddr
 }
 
 async function main() {
-  const bridgeLots = process.env.BRIDGE_LOTS ?? "1";
+  const bridgeAmount = process.env.BRIDGE_AMOUNT ?? "1";
   const signerAddress = account.address;
-  const [fAssetAddress, decimals, amountToBridge] = await Promise.all([
-    getFxrpAddress(),
-    getFxrpDecimals(),
-    calculateAmountToSend(BigInt(bridgeLots)),
-  ]);
+  const [fAssetAddress, decimals] = await Promise.all([getFxrpAddress(), getFxrpDecimals()]);
+  const amountToBridge = parseUnits(bridgeAmount, decimals);
 
   console.log("Using account:", signerAddress);
   console.log("Token address:", fAssetAddress);
