@@ -47,8 +47,8 @@
   "prettier": "@flarenetwork/prettier-config-flare",
   "devDependencies": {
     "@eslint/compat": "^2.0.2",
-    "@flarenetwork/eslint-config-flare": "^0.0.1",
-    "@flarenetwork/prettier-config-flare": "^0.0.2",
+    "@flarenetwork/eslint-config-flare": "^0.0.2",
+    "@flarenetwork/prettier-config-flare": "^0.0.3",
     "@types/node": "^24.10.13",
     "@vitest/coverage-v8": "4.0.15",
     "eslint": "latest",
@@ -60,8 +60,8 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@flarenetwork/flare-wagmi-periphery-package": "^3.6.0",
-    "@flarenetwork/smart-accounts-encoder": "^0.1.0",
+    "@flarenetwork/flare-wagmi-periphery-package": "^3.7.0",
+    "@flarenetwork/smart-accounts-encoder": "^0.1.2",
     "@layerzerolabs/lz-definitions": "^3.0.168",
     "@layerzerolabs/lz-v2-utilities": "^3.0.168",
     "viem": "~2.45.3",
