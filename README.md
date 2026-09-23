@@ -209,6 +209,14 @@ Reads owner/recipient before transfer, validates caller ownership, performs tran
 - **Prereqs:** tag already reserved and currently owned by the configured wallet (`PRIVATE_KEY`).
 - **Status:** standalone.
 
+#### `redemption-queue.ts`
+
+Read-only: pages `AssetManagerFXRP.redemptionQueue` from the head of the FIFO and prints each ticket (id, agent vault, value, lots) plus the queue total and a per-agent summary.
+
+- **Env:** none.
+- **Prereqs:** none.
+- **Status:** standalone.
+
 #### `redeem-amount.ts`
 
 Calls `AssetManagerFXRP.redeemAmount(5_000_000 UBA, hardcoded XRPL address, zero)` directly from the externally owned account (not via personal account / 0xFE).
