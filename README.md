@@ -172,6 +172,15 @@ Read-only: prints the `AssetManagerFXRP`, `MintingTagManager`, and `CoreVaultMan
 - **Prereqs:** none.
 - **Status:** standalone.
 
+#### `emergency-pause.ts`
+
+Read-only: checks whether the FXRP FAsset system is under emergency pause (and the separate minting-only pause) via `AssetManagerFXRP` views `emergencyPaused`, `emergencyPauseLevel`, `emergencyPausedUntil`, and `mintingPaused`.
+Use this before sending XRP or calling `executeDirectMinting` — paused execute paths revert with `EmergencyPauseActive`.
+
+- **Env:** none.
+- **Prereqs:** none.
+- **Status:** standalone.
+
 #### `direct-minting-limits.ts`
 
 Read-only: queries the tumbling-window hourly/daily direct-minting rate limiter state from `AssetManagerFXRP`, replays the window slide off-chain so the displayed `used` / `remaining` reflect the current second, and prints the large-mint threshold + delay and the unblock-until flag.
@@ -295,6 +304,16 @@ Useful for debugging proof decoding offline.
 - **Status:** standalone (scratch).
 
 ### `src/layer-zero/`
+
+#### `oft-transfer-limits.ts`
+
+Read-only: queries per-endpoint FXRP OFT transfer rate limits on the Coston2 `FAssetOFTAdapter`.
+Prints raw `outgoingRateLimit` / `incomingRateLimit` storage, the default fallbacks, and effective remaining send and receive capacity after linear decay (`getAmountCanBeSent` / `getAmountCanBeReceived`).
+These caps are separate from the AssetManager minting limits in `fassets/direct-minting-limits.ts`.
+
+- **Env:** optional `DST_EID` (default Sepolia `40161`).
+- **Prereqs:** none. No wallet is required.
+- **Status:** standalone.
 
 #### `bridge-fxrp.ts`
 
